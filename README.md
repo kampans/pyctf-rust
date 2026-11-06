@@ -28,8 +28,7 @@
 
 ### General
 - **Enter/Space**: Start game (from lobby)
-- **Tab**: Switch between name input fields
-- **F11**: Toggle fullscreen (Macroquad default)
+- **Tab**: Fuller UI details
 - **9**: Toggle hitbox display (debug)
 
 ## Installation
@@ -72,7 +71,7 @@ pyctf-rust/
 - **Player sprites** (`player_red.png`, `player_blue.png`): 144x144 pixel sprite sheets (6 columns x 6 rows of 24x24 frames)
 - **Flags** (`redflag.png`, `blueflag.png`): 32x32 flag icons with nearest-neighbor filtering
 - **Background** (`background.png`): 1600x900 game background
-- **Sounds** (`gamemusic.ogg`, `jump.ogg`, `woosh.ogg`): Game audio effects
+- **Sounds** (`gamemusic.ogg`, `jump.ogg`, `woosh.ogg`): Game audio effects... [SOUNDS NOT ADDED YET]
 
 ## Game Mechanics
 
