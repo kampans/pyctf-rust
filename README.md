@@ -1,6 +1,7 @@
-# pyCTF - Rust/Macroquad Port
+# pyCTF - Rust/Macroquad Port (pyrust)
 
-**pyCTF** is a Capture the Flag game ported from Python/pygame to Rust using **Macroquad**. The original game was a pygame-based CTF game, and this version brings it to Rust with improved performance and modern tooling.
+**pyCTF** is the original Python/pygame version of the Capture the Flag game.
+**pyrust** is the new Rust/Macroquad port of this version. 
 
 ## Gameplay
 
@@ -15,20 +16,21 @@
 ### Player 1 (Red)
 - **Move**: A / D
 - **Jump**: W
-- **Fall through platform**: S
+- **Fall/Hang**: S
 - **Dash left**: Q
 - **Dash right**: E
 
 ### Player 2 (Blue)
 - **Move**: J / L
 - **Jump**: I
-- **Fall through platform**: K
+- **Fall/Hang**: K
 - **Dash left**: U
 - **Dash right**: O
 
 ### General
 - **Enter/Space**: Start game (from lobby)
-- **Tab**: Fuller UI details
+- **Tab**: Switch between name input fields
+- **F11**: Toggle fullscreen (Macroquad default)
 - **9**: Toggle hitbox display (debug)
 
 ## Installation
@@ -39,7 +41,7 @@
 
 ### Building
 ```bash
-git clone <repository-url>
+git clone <https://github.com/kampans/pyctf-rust>
 cd pyctf-rust
 cargo run
 ```
@@ -50,7 +52,10 @@ The game will launch in a 1600x900 window.
 
 ```
 pyctf-rust/
-├── assets/                    # Game assets (images, sounds)
+├── assets/
+│   ├── pictures/
+│   │   ├── pyctf.png          # Original Python version screenshot
+│   │   └── pyrust.png         # New Rust version screenshot
 │   ├── background.png         # Game background
 │   ├── blueflag.png           # Blue team flag
 │   ├── gamemusic.ogg          # Background music
@@ -67,11 +72,12 @@ pyctf-rust/
 └── .gitignore
 ```
 
-### Assets Description
-- **Player sprites** (`player_red.png`, `player_blue.png`): 144x144 pixel sprite sheets (6 columns x 6 rows of 24x24 frames)
-- **Flags** (`redflag.png`, `blueflag.png`): 32x32 flag icons with nearest-neighbor filtering
-- **Background** (`background.png`): 1600x900 game background
-- **Sounds** (`gamemusic.ogg`, `jump.ogg`, `woosh.ogg`): Game audio effects... [SOUNDS NOT ADDED YET]
+### Screenshots
+- **pyctf.png**: Screenshot of the original Python/pygame version
+- **pyrust.png**: Screenshot of this Rust/Macroquad port
+
+<img src="assets/pictures/pyctf.png" alt="pyCTF Original" width="343">
+<img src="assets/pictures/pyrust.png" alt="pyrust Rust Port" width="400">
 
 ## Game Mechanics
 
@@ -95,4 +101,4 @@ The game aims to faithfully port the original pyCTF gameplay experience to Rust 
 
 ## License
 
-This project is open source. See the original pyCTF license for details.
+License on this code is yet to be decided.
