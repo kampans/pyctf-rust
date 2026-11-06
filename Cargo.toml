@@ -1,0 +1,12 @@
+[package]
+name = "pyctf"
+version = "0.1.0"
+edition = "2024"
+description = "Rust port of pyCTF - Capture the Flag (pygame -> Rust/Macroquad)"
+
+[dependencies]
+macroquad = "0.4"
+rand = "0.8"
+
+[profile.release]
+opt-level = 3
