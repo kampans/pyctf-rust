@@ -27,6 +27,7 @@ const P1_INPUT: Rect = Rect { x: 400.0, y: 280.0, w: 300.0, h: 48.0 };
 const P2_INPUT: Rect = Rect { x: 900.0, y: 280.0, w: 300.0, h: 48.0 };
 const P2_MODE: Rect = Rect { x: 900.0, y: 345.0, w: 300.0, h: 44.0 };
 const NAME_MAX_CHARS: usize = 12;
+const GAME_MODE: Rect = Rect { x: 550.0, y: 155.0, w: 500.0, h: 48.0 };
 
 struct App {
     game: Game,
@@ -75,6 +76,8 @@ impl App {
         // Sprite sheets are 144x144 (6 columns x 6 rows of 24x24 frames).
         let red_player = load_or_placeholder("assets/player_red.png", 144, 144, COLOR_RED).await;
         let blue_player = load_or_placeholder("assets/player_blue.png", 144, 144, COLOR_BLUE).await;
+        let coin = load_or_placeholder("assets/coin.png", 80, 16, GOLD).await;
+        coin.set_filter(FilterMode::Nearest);
 
         // Keep pixel art crisp when scaled up.
         red_flag.set_filter(FilterMode::Nearest);
@@ -87,7 +90,7 @@ impl App {
 
         let start_button_rect = Rect::new(WIDTH / 2.0 - 120.0, 700.0, 240.0, 60.0);
 
-        let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, font);
+        let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, coin, font);
         let npc = npc::Npc::new(&game.platforms);
         Self {
             game,
@@ -129,6 +132,9 @@ impl App {
                 self.focused_field = Some(0);
             } else if point_in(&P2_INPUT, mx, my) {
                 self.focused_field = Some(1);
+            } else if point_in(&GAME_MODE, mx, my) {
+                self.game.mode.toggle();
+                self.focused_field = None;
             } else if point_in(&P2_MODE, mx, my) {
                 self.p2_npc = !self.p2_npc;
                 self.focused_field = None;
@@ -143,6 +149,9 @@ impl App {
         // F2 remains available while editing either name.
         if is_key_pressed(KeyCode::F2) {
             self.p2_npc = !self.p2_npc;
+        }
+        if is_key_pressed(KeyCode::F3) {
+            self.game.mode.toggle();
         }
 
         // Tab switches between the two name boxes.
@@ -267,6 +276,10 @@ impl App {
         let font = self.game.font.as_ref();
 
         draw_centered("pyCTF - The RUST port", center_x, 120.0, 64, WHITE, font);
+        draw_rectangle(GAME_MODE.x, GAME_MODE.y, GAME_MODE.w, GAME_MODE.h, Color::new(0.2, 0.25, 0.15, 1.0));
+        draw_rectangle_lines(GAME_MODE.x, GAME_MODE.y, GAME_MODE.w, GAME_MODE.h, 2.0, GOLD);
+        draw_centered(self.game.mode.label(), center_x, GAME_MODE.y + 32.0, 28, GOLD, font);
+        draw_centered("Click or F3 to change game mode", center_x, 224.0, 16, GRAY, font);
 
         // ---- Name inputs ----
         draw_centered("PLAYER 1 (RED)", P1_INPUT.x + P1_INPUT.w / 2.0, 250.0, 28, COLOR_RED, font);

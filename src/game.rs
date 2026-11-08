@@ -25,6 +25,10 @@ pub const FLAG_FRAME_H: f32 = 45.0;
 pub const FLAG_FRAME_COUNT: usize = 8;
 pub const FLAG_ANIM_SPEED: f32 = 0.1; // seconds per frame
 
+/// Coin sprite sheet: five 16x16 frames in a single row (80x16 total).
+pub const COIN_FRAME_SIZE: f32 = 16.0;
+pub const COIN_FRAME_COUNT: usize = 5;
+
 /// Animation rows in the sprite sheet.
 pub const ROW_IDLE: usize = 0;
 pub const ROW_WALK: usize = 1;
@@ -41,6 +45,61 @@ pub const ROUND_SECONDS: f32 = 120.0;
 pub const SCORE_FLAG: u32 = 10; // attacker captures the flag
 pub const SCORE_TAG: u32 = 10; // defender catches the attacker
 pub const SCORE_VOID: u32 = 5; // opponent falls into the void
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GameMode {
+    CaptureTheFlag,
+    CoinRace,
+}
+
+impl GameMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CaptureTheFlag => "CAPTURE THE FLAG",
+            Self::CoinRace => "COIN RACE",
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        *self = match self {
+            Self::CaptureTheFlag => Self::CoinRace,
+            Self::CoinRace => Self::CaptureTheFlag,
+        };
+    }
+}
+
+pub const COIN_MIN_SPAWN_DISTANCE: f32 = 400.0;
+
+/// Intersect a circle around the coin with safe standing positions on platforms.
+fn race_spawn_pairs(platforms: &[Platform], coin: Vec2) -> Vec<[Vec2; 2]> {
+    let mut pairs = Vec::new();
+    for radius in (COIN_MIN_SPAWN_DISTANCE as u32..=1400).step_by(25) {
+        let radius = radius as f32;
+        let mut candidates = Vec::new();
+        for platform in platforms {
+            let y = platform.rect.y + 1.0;
+            let dx_squared = radius * radius - (y - coin.y).powi(2);
+            if dx_squared < 0.0 {
+                continue;
+            }
+            for x in [coin.x - dx_squared.sqrt(), coin.x + dx_squared.sqrt()] {
+                if x >= platform.rect.x + HITBOX_SIZE / 2.0
+                    && x <= platform.rect.right() - HITBOX_SIZE / 2.0
+                {
+                    candidates.push(vec2(x, y));
+                }
+            }
+        }
+        for (i, &a) in candidates.iter().enumerate() {
+            for &b in &candidates[i + 1..] {
+                if a.distance(b) >= COIN_MIN_SPAWN_DISTANCE {
+                    pairs.push([a, b]);
+                }
+            }
+        }
+    }
+    pairs
+}
 
 /// Colours.
 pub const COLOR_RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
@@ -111,6 +170,9 @@ pub struct Flag {
 }
 
 pub struct Game {
+    pub mode: GameMode,
+    pub coin: Flag,
+    race_spawns: [Vec2; 2],
     pub background: Texture2D,
     pub platforms: Vec<Platform>,
     /// Death zone at the bottom of the screen.
@@ -145,6 +207,7 @@ impl Game {
         blue_flag: Texture2D,
         red_player: Texture2D,
         blue_player: Texture2D,
+        coin: Texture2D,
         font: Option<Font>,
     ) -> Self {
         let platforms = arena_platforms();
@@ -153,6 +216,9 @@ impl Game {
         let empty = Rect::new(0.0, 0.0, HITBOX_SIZE, HITBOX_SIZE);
 
         let mut game = Game {
+            mode: GameMode::CaptureTheFlag,
+            coin: Flag { pos: Vec2::ZERO, texture: coin, anim_frame: 0, anim_timer: 0.0 },
+            race_spawns: [Vec2::ZERO; 2],
             background,
             platforms,
             void,
@@ -197,6 +263,12 @@ impl Game {
     /// Put the flag and both players back in their starting spots.
     /// The flag goes first so the defender can spawn near it.
     fn reset_round(&mut self) {
+        if self.mode == GameMode::CoinRace {
+            self.respawn_coin();
+            self.respawn(0);
+            self.respawn(1);
+            return;
+        }
         self.respawn_flags();
         self.respawn(0);
         self.respawn(1);
@@ -270,6 +342,9 @@ impl Game {
             self.respawn(1);
         }
 
+        self.p1_hitbox = self.players[0].hitbox;
+        self.p2_hitbox = self.players[1].hitbox;
+
         // Flag capture / tag.
         self.check_scoring();
 
@@ -284,6 +359,11 @@ impl Game {
                 flag.anim_timer -= FLAG_ANIM_SPEED;
                 flag.anim_frame = (flag.anim_frame + 1) % FLAG_FRAME_COUNT;
             }
+        }
+        self.coin.anim_timer += dt;
+        if self.coin.anim_timer >= FLAG_ANIM_SPEED {
+            self.coin.anim_timer %= FLAG_ANIM_SPEED;
+            self.coin.anim_frame = (self.coin.anim_frame + 1) % COIN_FRAME_COUNT;
         }
 
         // Spawn flash timers.
@@ -304,6 +384,10 @@ impl Game {
             self.round_timer -= dt;
             if self.round_timer <= 0.0 {
                 self.round_timer = ROUND_SECONDS;
+                if self.mode == GameMode::CoinRace {
+                    self.reset_round();
+                    return;
+                }
                 self.swap_roles();
                 self.role_reversal_active = true;
                 self.role_reversal_timer = 2.0; // banner shows for 2 seconds
@@ -314,6 +398,20 @@ impl Game {
     /// Attacker touches the defender's flag -> flag score.
     /// Attacker touches the defender -> tag score for the defender.
     fn check_scoring(&mut self) {
+        if self.mode == GameMode::CoinRace {
+            let coin_hitbox = hitbox_at(self.coin.pos);
+            let touches = [
+                rects_overlap(&self.p1_hitbox, &coin_hitbox),
+                rects_overlap(&self.p2_hitbox, &coin_hitbox),
+            ];
+            // A simultaneous pickup is a tie, so neither player gets priority.
+            if touches[0] || touches[1] {
+                if touches[0] && !touches[1] { self.p1_score += SCORE_FLAG; }
+                if touches[1] && !touches[0] { self.p2_score += SCORE_FLAG; }
+                self.reset_round();
+            }
+            return;
+        }
         let attacker_hitbox = if self.attacker_idx == 0 { self.p1_hitbox } else { self.p2_hitbox };
         let defender_hitbox = if self.defender_idx == 0 { self.p1_hitbox } else { self.p2_hitbox };
         let defender_flag_hitbox = if self.defender_idx == 0 { self.f1_hitbox } else { self.f2_hitbox };
@@ -373,6 +471,19 @@ impl Game {
         }
 
         // Players, spawn flash and names.
+        if self.mode == GameMode::CoinRace {
+            draw_texture_ex(
+                &self.coin.texture,
+                self.coin.pos.x - FLAG_SIZE / 2.0,
+                self.coin.pos.y - FLAG_SIZE,
+                WHITE,
+                DrawTextureParams {
+                    source: Some(Rect::new(self.coin.anim_frame as f32 * COIN_FRAME_SIZE, 0.0, COIN_FRAME_SIZE, COIN_FRAME_SIZE)),
+                    dest_size: Some(vec2(FLAG_SIZE, FLAG_SIZE)),
+                    ..Default::default()
+                },
+            );
+        }
         let font = self.font.as_ref();
         for p in self.players.iter() {
             let source = Rect::new(
@@ -410,7 +521,12 @@ impl Game {
 
         // Debug hitboxes.
         if draw_hitboxes {
-            for r in [self.p1_hitbox, self.p2_hitbox, self.f1_hitbox, self.f2_hitbox] {
+            let objectives = if self.mode == GameMode::CoinRace {
+                vec![hitbox_at(self.coin.pos)]
+            } else {
+                self.active_flags.iter().map(|&i| hitbox_at(self.flags[i].pos)).collect()
+            };
+            for r in [self.p1_hitbox, self.p2_hitbox].into_iter().chain(objectives) {
                 draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, WHITE);
             }
         }
@@ -444,7 +560,9 @@ impl Game {
             let score_text = format!("P1: {}  |  P2: {}", self.p1_score, self.p2_score);
             let p1_role = if self.attacker_idx == 0 { "ATTACKER" } else { "DEFENDER" };
             let p2_role = if self.attacker_idx == 1 { "ATTACKER" } else { "DEFENDER" };
-            let role_text = format!("P1: {}  |  P2: {}", p1_role, p2_role);
+            let role_text = if self.mode == GameMode::CoinRace {
+                "COIN RACE - First to the coin wins 10 points".to_string()
+            } else { format!("P1: {}  |  P2: {}", p1_role, p2_role) };
 
             let score_dims = measure_text(&score_text, font, 36, 1.0);
             let role_dims = measure_text(&role_text, font, 24, 1.0);
@@ -475,6 +593,10 @@ impl Game {
     /// Respawn a player. The defender spawns on a platform near their flag,
     /// the attacker on a platform far from it.
     pub fn respawn(&mut self, idx: usize) {
+        if self.mode == GameMode::CoinRace {
+            self.place_player(idx, self.race_spawns[idx]);
+            return;
+        }
         let is_defender = idx == self.defender_idx;
         let flag_x = self.flags[self.defender_idx].pos.x;
 
@@ -501,8 +623,12 @@ impl Game {
         let max_x = spawn_platform.rect.x + spawn_platform.rect.w - 20.0;
         let x = min_x + ::rand::random::<f32>() * (max_x - min_x);
 
+        self.place_player(idx, vec2(x, spawn_platform.rect.y + 1.0));
+    }
+
+    fn place_player(&mut self, idx: usize, pos: Vec2) {
         let player = &mut self.players[idx];
-        player.pos = vec2(x, spawn_platform.rect.y + 1.0);
+        player.pos = pos;
         player.vel = Vec2::ZERO;
         player.acc = Vec2::ZERO;
         player.jumping = false;
@@ -510,6 +636,23 @@ impl Game {
         player.spawn_timer = 1.0;
         player.spawn_color = if idx == 0 { COLOR_RED } else { COLOR_BLUE };
         player.hitbox = hitbox_at(player.pos);
+        player.anim_row = ROW_IDLE;
+        player.anim_frame = 0;
+        player.anim_timer = 0.0;
+    }
+
+    fn respawn_coin(&mut self) {
+        self.active_flags.clear();
+        self.respawn_flags();
+        self.coin.pos = self.flags[self.defender_idx].pos;
+        self.active_flags.clear();
+        let pairs = race_spawn_pairs(&self.platforms, self.coin.pos);
+        // Every upper-platform coin location in this arena has valid spawn pairs.
+        let mut pair = pairs[::rand::random::<usize>() % pairs.len()];
+        if ::rand::random::<bool>() { pair.swap(0, 1); }
+        self.race_spawns = pair;
+        self.coin.anim_frame = 0;
+        self.coin.anim_timer = 0.0;
     }
 
     /// Place the defender's flag on a random upper platform; only that flag is active.
@@ -600,4 +743,38 @@ pub fn arena_platforms() -> Vec<Platform> {
         Platform { rect: Rect::new(78.0, 705.0, 500.0, 20.0) },
         Platform { rect: Rect::new(1040.0, 705.0, 479.0, 20.0) },
     ]
+}
+
+#[cfg(test)]
+mod race_tests {
+    use super::*;
+
+    #[test]
+    fn every_coin_location_has_safe_equidistant_spawns() {
+        let platforms = arena_platforms();
+        for platform in platforms.iter().filter(|p| p.rect.y < HEIGHT / 2.0) {
+            let left = platform.rect.x + 40.0;
+            let right = platform.rect.right() - 40.0;
+            // Cover the full spawn range, including both edges, at subpixel intervals.
+            for step in 0..=1000 {
+                let coin = vec2(left + (right - left) * step as f32 / 1000.0, platform.rect.y);
+                let pairs = race_spawn_pairs(&platforms, coin);
+                assert!(!pairs.is_empty(), "no spawn pair for {coin:?}");
+                for pair in pairs {
+                    let [a, b] = pair;
+                    assert!((a.distance(coin) - b.distance(coin)).abs() < 0.001);
+                    assert!(a.distance(coin) >= COIN_MIN_SPAWN_DISTANCE - 0.001);
+                    assert!(a.distance(b) >= COIN_MIN_SPAWN_DISTANCE);
+                    for spawn in pair {
+                        assert!(platforms.iter().any(|p| {
+                            (spawn.y - p.rect.y - 1.0).abs() < 0.001
+                                && spawn.x >= p.rect.x + HITBOX_SIZE / 2.0
+                                && spawn.x <= p.rect.right() - HITBOX_SIZE / 2.0
+                        }));
+                        assert!(!rects_overlap(&hitbox_at(spawn), &hitbox_at(coin)));
+                    }
+                }
+            }
+        }
+    }
 }

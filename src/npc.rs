@@ -1,5 +1,5 @@
 //! P2 controller. Routes are verified with the same physics used by human players.
-use crate::game::{Game, Platform};
+use crate::game::{Game, GameMode, Platform};
 use crate::motion::Motion;
 use macroquad::prelude::*;
 use std::collections::VecDeque;
@@ -121,7 +121,9 @@ impl Npc {
             self.launched = false;
         }
         self.last_spawn_timer = p2.spawn_timer;
-        let target = if game.attacker_idx == 1 {
+        let target = if game.mode == GameMode::CoinRace {
+            game.coin.pos
+        } else if game.attacker_idx == 1 {
             game.flags[game.defender_idx].pos
         } else {
             game.players[0].pos
