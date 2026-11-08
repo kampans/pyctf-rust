@@ -6,6 +6,9 @@
 ## Gameplay
 
 - Two players (Red vs Blue) compete to capture the flag
+- P1 is always human; choose **P2: HUMAN** or **P2: NPC** in the start menu (click the toggle or press **F2**). Human is the default.
+- The NPC navigates platforms, jumps, drops and dashes using the same physics as a human. It pursues the active flag as attacker and chases P1 as defender, adapting when roles swap.
+- NPC mode ignores P2 keyboard controls and marks the blue player with `[NPC]`. Names remain editable in either mode.
 - The attacker tries to grab the opponent's flag and return it to their base
 - The defender tries to stop the attacker or catch them
 - Rounds last 120 seconds; scoring is based on flag captures, defender catches, and void kills
@@ -30,6 +33,8 @@
 ### General
 - **Enter/Space**: Start game (from lobby)
 - **Tab**: Switch between name input fields
+- **F2**: Toggle P2 between human and NPC in the lobby
+- **Escape**: Return to the start menu; starting again resets the match
 - **F11**: Toggle fullscreen (Macroquad default)
 - **9**: Toggle hitbox display (debug)
 
@@ -67,7 +72,9 @@ pyctf-rust/
 │   └── woosh.ogg              # Dash/swoosh sound effect
 ├── src/
 │   ├── main.rs                # Entry point - window config, game state, lobby
-│   └── game.rs                # Game entities, physics, collision, scoring
+│   ├── game.rs                # Game entities, collision, scoring
+│   ├── motion.rs              # Shared player and NPC prediction physics
+│   └── npc.rs                 # P2 navigation, attack and defense
 ├── Cargo.toml                 # Rust package configuration
 └── .gitignore
 ```
@@ -90,6 +97,15 @@ pyctf-rust/
   - 5 points for opponent falling into the void
 - **Round timer**: 120 seconds per round; roles swap when time runs out
 - **Spawn protection**: Players spawn with a flash effect and invulnerability
+
+## Validation
+
+```bash
+cargo test
+cargo clippy --all-targets -- -D warnings
+```
+
+The navigation tests check every platform pair and simulate NPC movement from varied spawn positions to targets across the arena, checking that it reaches them without falling into the void.
 
 ## Development
 

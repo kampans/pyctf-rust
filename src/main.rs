@@ -1,5 +1,7 @@
 // main.rs - entry point for pyCTF (Rust/Macroquad port)
 mod game;
+mod motion;
+mod npc;
 
 use game::{draw_label, Game, COLOR_BLUE, COLOR_RED, HEIGHT, WIDTH};
 use macroquad::prelude::*;
@@ -23,10 +25,13 @@ enum GameState {
 
 const P1_INPUT: Rect = Rect { x: 400.0, y: 280.0, w: 300.0, h: 48.0 };
 const P2_INPUT: Rect = Rect { x: 900.0, y: 280.0, w: 300.0, h: 48.0 };
+const P2_MODE: Rect = Rect { x: 900.0, y: 345.0, w: 300.0, h: 44.0 };
 const NAME_MAX_CHARS: usize = 12;
 
 struct App {
     game: Game,
+    npc: npc::Npc,
+    p2_npc: bool,
     p1_keys: [bool; 6],
     p2_keys: [bool; 6],
     /// Debug overlay (key 9).
@@ -82,8 +87,12 @@ impl App {
 
         let start_button_rect = Rect::new(WIDTH / 2.0 - 120.0, 700.0, 240.0, 60.0);
 
+        let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, font);
+        let npc = npc::Npc::new(&game.platforms);
         Self {
-            game: Game::new(background, red_flag, blue_flag, red_player, blue_player, font),
+            game,
+            npc,
+            p2_npc: false,
             p1_keys: [false; 6],
             p2_keys: [false; 6],
             show_hitboxes: false,
@@ -120,12 +129,20 @@ impl App {
                 self.focused_field = Some(0);
             } else if point_in(&P2_INPUT, mx, my) {
                 self.focused_field = Some(1);
+            } else if point_in(&P2_MODE, mx, my) {
+                self.p2_npc = !self.p2_npc;
+                self.focused_field = None;
             } else if self.start_button_hovered {
                 self.start_game();
                 return;
             } else {
                 self.focused_field = None;
             }
+        }
+
+        // F2 remains available while editing either name.
+        if is_key_pressed(KeyCode::F2) {
+            self.p2_npc = !self.p2_npc;
         }
 
         // Tab switches between the two name boxes.
@@ -169,13 +186,23 @@ impl App {
         let p1 = self.p1_name.trim().to_string();
         let p2 = self.p2_name.trim().to_string();
         self.game.players[0].name = if p1.is_empty() { "Player1".to_string() } else { p1 };
-        self.game.players[1].name = if p2.is_empty() { "Player2".to_string() } else { p2 };
+        self.game.players[1].name = if self.p2_npc {
+            format!("{} [NPC]", if p2.is_empty() { "Player2" } else { &p2 })
+        } else if p2.is_empty() { "Player2".to_string() } else { p2 };
         self.game.reset();
+        self.npc.reset();
+        self.p1_keys = [false; 6];
+        self.p2_keys = [false; 6];
         self.state = GameState::Playing;
         self.focused_field = None;
     }
 
     fn update_playing(&mut self, _dt: f32) {
+        if is_key_pressed(KeyCode::Escape) {
+            self.state = GameState::Lobby;
+            self.npc.reset();
+            return;
+        }
         // [left, right, jump, fall through, dash left, dash right]
         self.p1_keys = [
             is_key_down(KeyCode::A),
@@ -185,14 +212,18 @@ impl App {
             is_key_down(KeyCode::Q),
             is_key_down(KeyCode::E),
         ];
-        self.p2_keys = [
-            is_key_down(KeyCode::J),
-            is_key_down(KeyCode::L),
-            is_key_down(KeyCode::I),
-            is_key_down(KeyCode::K),
-            is_key_down(KeyCode::U),
-            is_key_down(KeyCode::O),
-        ];
+        self.p2_keys = if self.p2_npc {
+            self.npc.keys(&self.game)
+        } else {
+            [
+                is_key_down(KeyCode::J),
+                is_key_down(KeyCode::L),
+                is_key_down(KeyCode::I),
+                is_key_down(KeyCode::K),
+                is_key_down(KeyCode::U),
+                is_key_down(KeyCode::O),
+            ]
+        };
 
         self.game.move_player(0, &self.p1_keys);
         self.game.move_player(1, &self.p2_keys);
@@ -216,6 +247,7 @@ impl App {
     fn draw_playing(&self) {
         self.game.draw(self.show_hitboxes);
         self.game.draw_ui(!is_key_down(KeyCode::Tab));
+        draw_label("[ESC] Start menu", 20.0, HEIGHT - 15.0, 18, WHITE, self.game.font.as_ref());
     }
 
     /// One name input box (background, border, text and blinking cursor).
@@ -243,8 +275,21 @@ impl App {
         draw_centered("PLAYER 2 (BLUE)", P2_INPUT.x + P2_INPUT.w / 2.0, 250.0, 28, COLOR_BLUE, font);
         self.draw_name_box(&P2_INPUT, &self.p2_name, self.focused_field == Some(1), COLOR_BLUE, font);
 
+        draw_centered("HUMAN", P1_INPUT.x + P1_INPUT.w / 2.0, 375.0, 22, COLOR_RED, font);
+        let mode = if self.p2_npc { "P2: NPC" } else { "P2: HUMAN" };
+        let (mx, my) = mouse_position();
+        let color = if point_in(&P2_MODE, mx, my) {
+            Color::new(0.2, 0.4, 0.65, 1.0)
+        } else {
+            Color::new(0.1, 0.2, 0.35, 1.0)
+        };
+        draw_rectangle(P2_MODE.x, P2_MODE.y, P2_MODE.w, P2_MODE.h, color);
+        draw_rectangle_lines(P2_MODE.x, P2_MODE.y, P2_MODE.w, P2_MODE.h, 2.0, COLOR_BLUE);
+        draw_centered(mode, P2_MODE.center().x, P2_MODE.y + 29.0, 24, WHITE, font);
+        draw_centered("Click or F2 to toggle", P2_MODE.center().x, 408.0, 16, GRAY, font);
+
         // ---- Controls table ----
-        let table_y = 420.0;
+        let table_y = 445.0;
         let col1_x = 450.0;
         let col2_x = 1050.0;
         let row_height = 30.0;
@@ -264,7 +309,7 @@ impl App {
             let y = table_y + 35.0 + i as f32 * row_height;
             draw_label(action, col1_x - 160.0, y, 20, Color::new(0.8, 0.8, 0.8, 1.0), font);
             draw_label(p1_key, col1_x, y, 20, COLOR_RED, font);
-            draw_label(p2_key, col2_x, y, 20, COLOR_BLUE, font);
+            draw_label(if self.p2_npc { "NPC controlled" } else { p2_key }, col2_x, y, 20, COLOR_BLUE, font);
         }
 
         // ---- Start button ----

@@ -93,49 +93,6 @@ impl Player {
             spawn_color,
         }
     }
-
-    /// Jump: only when standing on a platform.
-    fn jump(&mut self, platforms: &[Platform]) {
-        if self.is_overlapping_platform(platforms) && !self.jumping {
-            self.vel.y = -17.5;
-            self.jumping = true;
-        }
-    }
-
-    /// Fall through the platform you are standing on.
-    fn fall(&mut self, platforms: &[Platform]) {
-        if let Some(p) = self.first_platform(platforms) {
-            self.vel.y = 10.5;
-            self.pos.y = p.rect.y + 44.0;
-        }
-    }
-
-    /// Dash left (in the air only, once per jump).
-    fn dash_left(&mut self, platforms: &[Platform]) {
-        if !self.is_overlapping_platform(platforms) && !self.wooshing {
-            self.vel.x = -50.0;
-            self.wooshing = true;
-        }
-    }
-
-    /// Dash right (in the air only, once per jump).
-    fn dash_right(&mut self, platforms: &[Platform]) {
-        if !self.is_overlapping_platform(platforms) && !self.wooshing {
-            self.vel.x = 50.0;
-            self.wooshing = true;
-        }
-    }
-
-    fn is_overlapping_platform(&self, platforms: &[Platform]) -> bool {
-        platforms.iter().any(|p| rects_overlap(&self.hitbox, &p.rect))
-    }
-
-    fn first_platform(&self, platforms: &[Platform]) -> Option<Platform> {
-        platforms
-            .iter()
-            .find(|p| rects_overlap(&self.hitbox, &p.rect))
-            .copied()
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -190,29 +147,7 @@ impl Game {
         blue_player: Texture2D,
         font: Option<Font>,
     ) -> Self {
-        // Platforms matched to background.png (all 20px thick).
-        let platforms = vec![
-            // Top row
-            Platform { rect: Rect::new(245.0, 175.0, 270.0, 20.0) },
-            Platform { rect: Rect::new(675.0, 160.0, 266.0, 20.0) },
-            Platform { rect: Rect::new(1130.0, 175.0, 236.0, 20.0) },
-            // Upper-middle row
-            Platform { rect: Rect::new(458.0, 340.0, 222.0, 20.0) },
-            Platform { rect: Rect::new(922.0, 340.0, 218.0, 20.0) },
-            // Outer middle platforms
-            Platform { rect: Rect::new(88.0, 417.0, 266.0, 20.0) },
-            Platform { rect: Rect::new(1296.0, 427.0, 211.0, 20.0) },
-            // Centre platform
-            Platform { rect: Rect::new(680.0, 475.0, 247.0, 20.0) },
-            // Lower-middle row
-            Platform { rect: Rect::new(281.0, 570.0, 239.0, 20.0) },
-            Platform { rect: Rect::new(1089.0, 575.0, 232.0, 20.0) },
-            // Lower-centre platform
-            Platform { rect: Rect::new(684.0, 660.0, 258.0, 20.0) },
-            // Bottom row
-            Platform { rect: Rect::new(78.0, 705.0, 500.0, 20.0) },
-            Platform { rect: Rect::new(1040.0, 705.0, 479.0, 20.0) },
-        ];
+        let platforms = arena_platforms();
 
         let void = Rect::new(0.0, HEIGHT - 30.0, WIDTH, 30.0);
         let empty = Rect::new(0.0, 0.0, HITBOX_SIZE, HITBOX_SIZE);
@@ -271,60 +206,13 @@ impl Game {
     pub fn move_player(&mut self, idx: usize, keys: &[bool; 6]) {
         let player = &mut self.players[idx];
 
-        player.acc = Vec2::new(0.0, GRAVITY);
-
-        if keys[0] {
-            player.acc.x -= ACC;
-        }
-        if keys[1] {
-            player.acc.x += ACC;
-        }
-        if keys[2] {
-            player.jump(&self.platforms);
-        }
-        if keys[3] {
-            player.fall(&self.platforms);
-        }
-        if keys[4] {
-            player.dash_left(&self.platforms);
-        }
-        if keys[5] {
-            player.dash_right(&self.platforms);
-        }
-
-        player.acc.x += player.vel.x * FRICT;
-        player.vel += player.acc;
-        player.pos += player.vel + 0.5 * player.acc;
-
-        // Keep the player on screen horizontally.
-        if player.pos.x >= WIDTH - 20.0 {
-            player.pos.x = WIDTH - 30.0;
-        }
-        if player.pos.x <= 20.0 {
-            player.pos.x = 35.0;
-        }
-
-        // Land on any platform from above. `pos.y` is the bottom of the player.
-        for p in &self.platforms {
-            let player_left = player.pos.x - PLAYER_SIZE / 2.0;
-            let player_right = player.pos.x + PLAYER_SIZE / 2.0;
-            let plat_left = p.rect.x;
-            let plat_right = p.rect.x + p.rect.w;
-
-            if player.vel.y > 0.0
-                && player.pos.y >= p.rect.y
-                && player.pos.y < p.rect.y + PLAYER_SIZE
-                && player_left < plat_right
-                && player_right > plat_left
-            {
-                player.jumping = false;
-                player.wooshing = false;
-                player.vel.y = 0.0;
-                player.pos.y = p.rect.y + 1.0;
-                break;
-            }
-        }
-
+        let mut motion = crate::motion::Motion::from(&*player);
+        motion.step(keys, &self.platforms);
+        player.pos = motion.pos;
+        player.vel = motion.vel;
+        player.acc = motion.acc;
+        player.jumping = motion.jumping;
+        player.wooshing = motion.wooshing;
         player.hitbox = hitbox_at(player.pos);
     }
 
@@ -686,4 +574,30 @@ fn hitbox_at(pos: Vec2) -> Rect {
 /// Axis-aligned rectangle overlap test.
 fn rects_overlap(a: &Rect, b: &Rect) -> bool {
     a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+
+/// Platforms matched to background.png (all 20px thick).
+pub fn arena_platforms() -> Vec<Platform> {
+    vec![
+        // Top row
+        Platform { rect: Rect::new(245.0, 175.0, 270.0, 20.0) },
+        Platform { rect: Rect::new(675.0, 160.0, 266.0, 20.0) },
+        Platform { rect: Rect::new(1130.0, 175.0, 236.0, 20.0) },
+        // Upper-middle row
+        Platform { rect: Rect::new(458.0, 340.0, 222.0, 20.0) },
+        Platform { rect: Rect::new(922.0, 340.0, 218.0, 20.0) },
+        // Outer middle platforms
+        Platform { rect: Rect::new(88.0, 417.0, 266.0, 20.0) },
+        Platform { rect: Rect::new(1296.0, 427.0, 211.0, 20.0) },
+        // Centre platform
+        Platform { rect: Rect::new(680.0, 475.0, 247.0, 20.0) },
+        // Lower-middle row
+        Platform { rect: Rect::new(281.0, 570.0, 239.0, 20.0) },
+        Platform { rect: Rect::new(1089.0, 575.0, 232.0, 20.0) },
+        // Lower-centre platform
+        Platform { rect: Rect::new(684.0, 660.0, 258.0, 20.0) },
+        // Bottom row
+        Platform { rect: Rect::new(78.0, 705.0, 500.0, 20.0) },
+        Platform { rect: Rect::new(1040.0, 705.0, 479.0, 20.0) },
+    ]
 }
