@@ -27,11 +27,11 @@ enum GameState {
     MatchSummary,
 }
 
-const P1_INPUT: Rect = Rect { x: 400.0, y: 280.0, w: 300.0, h: 48.0 };
-const P2_INPUT: Rect = Rect { x: 900.0, y: 280.0, w: 300.0, h: 48.0 };
-const P2_MODE: Rect = Rect { x: 900.0, y: 345.0, w: 300.0, h: 44.0 };
+const P1_INPUT: Rect = Rect { x: 340.0, y: 290.0, w: 380.0, h: 64.0 };
+const P2_INPUT: Rect = Rect { x: 880.0, y: 290.0, w: 380.0, h: 64.0 };
+const P2_MODE: Rect = Rect { x: 880.0, y: 370.0, w: 380.0, h: 56.0 };
 const NAME_MAX_CHARS: usize = 12;
-const GAME_MODE: Rect = Rect { x: 550.0, y: 155.0, w: 500.0, h: 48.0 };
+const GAME_MODE: Rect = Rect { x: 500.0, y: 150.0, w: 600.0, h: 64.0 };
 const PLAY_AGAIN: Rect = Rect { x: 510.0, y: 560.0, w: 280.0, h: 60.0 };
 const BACK_TO_LOBBY: Rect = Rect { x: 810.0, y: 560.0, w: 280.0, h: 60.0 };
 
@@ -99,7 +99,7 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         let font = None; // No optional-file 404s in a hosted build.
 
-        let start_button_rect = Rect::new(WIDTH / 2.0 - 120.0, 700.0, 240.0, 60.0);
+        let start_button_rect = Rect::new(WIDTH / 2.0 - 170.0, 700.0, 340.0, 80.0);
 
         let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, coin, font);
         let npc = npc::Npc::new(&game.platforms);
@@ -377,20 +377,20 @@ impl App {
         let center_x = WIDTH / 2.0;
         let font = self.game.font.as_ref();
 
-        draw_centered("pyCTF - The RUST port", center_x, 120.0, 64, WHITE, font);
+        draw_centered("pyCTF - The RUST port", center_x, 100.0, 80, WHITE, font);
         draw_rectangle(GAME_MODE.x, GAME_MODE.y, GAME_MODE.w, GAME_MODE.h, Color::new(0.2, 0.25, 0.15, 1.0));
         draw_rectangle_lines(GAME_MODE.x, GAME_MODE.y, GAME_MODE.w, GAME_MODE.h, 2.0, GOLD);
-        draw_centered(self.game.mode.label(), center_x, GAME_MODE.y + 32.0, 28, GOLD, font);
-        draw_centered("Click or F3 to change game mode", center_x, 224.0, 16, GRAY, font);
+        draw_centered(self.game.mode.label(), center_x, GAME_MODE.y + 40.0, 36, GOLD, font);
+        draw_centered("Click or F3 to change game mode", center_x, 240.0, 20, GRAY, font);
 
         // ---- Name inputs ----
-        draw_centered("PLAYER 1 (RED)", P1_INPUT.x + P1_INPUT.w / 2.0, 250.0, 28, COLOR_RED, font);
+        draw_centered("PLAYER 1 (RED)", P1_INPUT.x + P1_INPUT.w / 2.0, P1_INPUT.y - 45.0, 34, COLOR_RED, font);
         self.draw_name_box(&P1_INPUT, &self.p1_name, self.focused_field == Some(0), COLOR_RED, font);
 
-        draw_centered("PLAYER 2 (BLUE)", P2_INPUT.x + P2_INPUT.w / 2.0, 250.0, 28, COLOR_BLUE, font);
+        draw_centered("PLAYER 2 (BLUE)", P2_INPUT.x + P2_INPUT.w / 2.0, P2_INPUT.y - 45.0, 34, COLOR_BLUE, font);
         self.draw_name_box(&P2_INPUT, &self.p2_name, self.focused_field == Some(1), COLOR_BLUE, font);
 
-        draw_centered("HUMAN", P1_INPUT.x + P1_INPUT.w / 2.0, 375.0, 22, COLOR_RED, font);
+        draw_centered("HUMAN", P1_INPUT.x + P1_INPUT.w / 2.0, P1_INPUT.y + P1_INPUT.h + 25.0, 28, COLOR_RED, font);
         let mode = if self.p2_npc { "P2: NPC" } else { "P2: HUMAN" };
         let (mx, my) = mouse_position();
         let color = if point_in(&P2_MODE, mx, my) {
@@ -400,17 +400,17 @@ impl App {
         };
         draw_rectangle(P2_MODE.x, P2_MODE.y, P2_MODE.w, P2_MODE.h, color);
         draw_rectangle_lines(P2_MODE.x, P2_MODE.y, P2_MODE.w, P2_MODE.h, 2.0, COLOR_BLUE);
-        draw_centered(mode, P2_MODE.center().x, P2_MODE.y + 29.0, 24, WHITE, font);
-        draw_centered("Click or F2 to toggle", P2_MODE.center().x, 408.0, 16, GRAY, font);
+        draw_centered(mode, P2_MODE.center().x, P2_MODE.y + 36.0, 30, WHITE, font);
+        draw_centered("Click or F2 to toggle", P2_MODE.center().x, P2_MODE.y + P2_MODE.h + 20.0, 20, GRAY, font);
 
         // ---- Controls table ----
-        let table_y = 445.0;
+        let table_y = 520.0;
         let col1_x = 450.0;
         let col2_x = 1050.0;
-        let row_height = 30.0;
+        let row_height = 42.0;
 
-        draw_label("PLAYER 1 (RED)", col1_x, table_y, 24, COLOR_RED, font);
-        draw_label("PLAYER 2 (BLUE)", col2_x, table_y, 24, COLOR_BLUE, font);
+        draw_label("PLAYER 1 (RED)", col1_x, table_y, 30, COLOR_RED, font);
+        draw_label("PLAYER 2 (BLUE)", col2_x, table_y, 30, COLOR_BLUE, font);
 
         let controls = [
             ("Move", "A / D", "J / L"),
@@ -421,10 +421,10 @@ impl App {
         ];
 
         for (i, (action, p1_key, p2_key)) in controls.iter().enumerate() {
-            let y = table_y + 35.0 + i as f32 * row_height;
-            draw_label(action, col1_x - 160.0, y, 20, Color::new(0.8, 0.8, 0.8, 1.0), font);
-            draw_label(p1_key, col1_x, y, 20, COLOR_RED, font);
-            draw_label(if self.p2_npc { "NPC controlled" } else { p2_key }, col2_x, y, 20, COLOR_BLUE, font);
+            let y = table_y + 45.0 + i as f32 * row_height;
+            draw_label(action, col1_x - 160.0, y, 26, Color::new(0.8, 0.8, 0.8, 1.0), font);
+            draw_label(p1_key, col1_x, y, 26, COLOR_RED, font);
+            draw_label(if self.p2_npc { "NPC controlled" } else { p2_key }, col2_x, y, 26, COLOR_BLUE, font);
         }
 
         // ---- Start button ----
@@ -436,12 +436,12 @@ impl App {
         };
         draw_rectangle(r.x, r.y, r.w, r.h, btn_color);
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, WHITE);
-        let btn_dims = measure_text("START GAME", font, 32, 1.0);
+        let btn_dims = measure_text("START GAME", font, 44, 1.0);
         draw_label(
             "START GAME",
             r.x + r.w / 2.0 - btn_dims.width / 2.0,
             r.y + r.h / 2.0 + btn_dims.height / 2.0 - 2.0,
-            32,
+            44,
             WHITE,
             font,
         );
@@ -449,8 +449,8 @@ impl App {
         draw_centered(
             "[ENTER] to start (or [SPACE] when no name box is selected)",
             center_x,
-            r.y + r.h + 25.0,
-            18,
+            r.y + r.h + 30.0,
+            22,
             Color::new(0.6, 0.6, 0.6, 1.0),
             font,
         );
@@ -458,8 +458,8 @@ impl App {
         draw_centered(
             "Click a name box to edit  -  Tab to switch  -  Max 12 characters",
             center_x,
-            HEIGHT - 50.0,
-            16,
+            HEIGHT - 35.0,
+            20,
             Color::new(0.5, 0.5, 0.5, 1.0),
             font,
         );
