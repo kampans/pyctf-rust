@@ -21,6 +21,7 @@ fn window_conf() -> Conf {
 enum GameState {
     Lobby,
     Playing,
+    MatchSummary,
 }
 
 const P1_INPUT: Rect = Rect { x: 400.0, y: 280.0, w: 300.0, h: 48.0 };
@@ -28,6 +29,8 @@ const P2_INPUT: Rect = Rect { x: 900.0, y: 280.0, w: 300.0, h: 48.0 };
 const P2_MODE: Rect = Rect { x: 900.0, y: 345.0, w: 300.0, h: 44.0 };
 const NAME_MAX_CHARS: usize = 12;
 const GAME_MODE: Rect = Rect { x: 550.0, y: 155.0, w: 500.0, h: 48.0 };
+const PLAY_AGAIN: Rect = Rect { x: 510.0, y: 560.0, w: 280.0, h: 60.0 };
+const BACK_TO_LOBBY: Rect = Rect { x: 810.0, y: 560.0, w: 280.0, h: 60.0 };
 
 struct App {
     game: Game,
@@ -114,6 +117,7 @@ impl App {
         match self.state {
             GameState::Lobby => self.update_lobby(dt),
             GameState::Playing => self.update_playing(dt),
+            GameState::MatchSummary => self.update_summary(),
         }
     }
 
@@ -206,7 +210,7 @@ impl App {
         self.focused_field = None;
     }
 
-    fn update_playing(&mut self, _dt: f32) {
+    fn update_playing(&mut self, dt: f32) {
         if is_key_pressed(KeyCode::Escape) {
             self.state = GameState::Lobby;
             self.npc.reset();
@@ -238,10 +242,29 @@ impl App {
         self.game.move_player(1, &self.p2_keys);
 
         // Hitboxes, void death, scoring, animation, round timer.
-        self.game.update(get_frame_time());
+        self.game.update(dt);
+        if self.game.match_finished() {
+            self.state = GameState::MatchSummary;
+            self.p1_keys = [false; 6];
+            self.p2_keys = [false; 6];
+            self.npc.reset();
+        }
 
         if is_key_pressed(KeyCode::Key9) {
             self.show_hitboxes = !self.show_hitboxes;
+        }
+    }
+
+    /// Only process menu input here. Rendering and next_frame continue normally,
+    /// including on the web; no sleep, nested event loop or blocking pause.
+    fn update_summary(&mut self) {
+        let (mx, my) = mouse_position();
+        let clicked = is_mouse_button_pressed(MouseButton::Left);
+        if is_key_pressed(KeyCode::Escape) || (clicked && point_in(&BACK_TO_LOBBY, mx, my)) {
+            self.state = GameState::Lobby;
+            self.focused_field = None;
+        } else if is_key_pressed(KeyCode::Enter) || (clicked && point_in(&PLAY_AGAIN, mx, my)) {
+            self.start_game();
         }
     }
 
@@ -250,6 +273,7 @@ impl App {
         match self.state {
             GameState::Lobby => self.draw_lobby(),
             GameState::Playing => self.draw_playing(),
+            GameState::MatchSummary => self.draw_summary(),
         }
     }
 
@@ -257,6 +281,36 @@ impl App {
         self.game.draw(self.show_hitboxes);
         self.game.draw_ui(!is_key_down(KeyCode::Tab));
         draw_label("[ESC] Start menu", 20.0, HEIGHT - 15.0, 18, WHITE, self.game.font.as_ref());
+    }
+
+    fn draw_summary(&self) {
+        self.game.draw(self.show_hitboxes);
+        let font = self.game.font.as_ref();
+        let center_x = WIDTH / 2.0;
+        draw_rectangle(0.0, 0.0, WIDTH, HEIGHT, Color::new(0.0, 0.0, 0.0, 0.35));
+        draw_rectangle(380.0, 220.0, 840.0, 460.0, Color::new(0.15, 0.15, 0.15, 0.88));
+        draw_rectangle_lines(380.0, 220.0, 840.0, 460.0, 2.0, GRAY);
+        draw_centered("COIN RACE - MATCH COMPLETE", center_x, 285.0, 36, GOLD, font);
+        draw_centered("Time's up!  120 seconds played", center_x, 325.0, 22, LIGHTGRAY, font);
+        let (result, color) = match self.game.p1_score.cmp(&self.game.p2_score) {
+            std::cmp::Ordering::Greater => (format!("{} wins!", self.game.players[0].name), COLOR_RED),
+            std::cmp::Ordering::Less => (format!("{} wins!", self.game.players[1].name), COLOR_BLUE),
+            std::cmp::Ordering::Equal => ("It's a draw!".to_string(), GOLD),
+        };
+        draw_centered(&result, center_x, 390.0, 36, color, font);
+        for (idx, score) in [self.game.p1_score, self.game.p2_score].into_iter().enumerate() {
+            let text = format!("{}: {} points", self.game.players[idx].name, score);
+            draw_centered(&text, center_x, 440.0 + idx as f32 * 40.0, 28,
+                if idx == 0 { COLOR_RED } else { COLOR_BLUE }, font);
+        }
+        let (mx, my) = mouse_position();
+        for (rect, label) in [(PLAY_AGAIN, "PLAY AGAIN [ENTER]"), (BACK_TO_LOBBY, "LOBBY [ESC]")] {
+            let shade = if point_in(&rect, mx, my) { 0.4 } else { 0.25 };
+            draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::new(shade, shade, shade, 0.9));
+            draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.0, LIGHTGRAY);
+            draw_centered(label, rect.center().x, rect.y + 38.0, 24, WHITE, font);
+        }
+        draw_centered("Play again starts a fresh match with scores reset", center_x, 652.0, 18, LIGHTGRAY, font);
     }
 
     /// One name input box (background, border, text and blinking cursor).

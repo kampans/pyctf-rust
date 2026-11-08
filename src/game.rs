@@ -71,6 +71,11 @@ impl GameMode {
 
 pub const COIN_MIN_SPAWN_DISTANCE: f32 = 400.0;
 
+fn advance_match_clock(timer: &mut f32, dt: f32) -> bool {
+    *timer = (*timer - dt).max(0.0);
+    *timer == 0.0
+}
+
 /// Intersect a circle around the coin with safe standing positions on platforms.
 fn race_spawn_pairs(platforms: &[Platform], coin: Vec2) -> Vec<[Vec2; 2]> {
     let mut pairs = Vec::new();
@@ -173,6 +178,7 @@ pub struct Flag {
 pub struct Game {
     pub mode: GameMode,
     pub coin: Flag,
+    coin_spawn_timer: f32,
     race_spawns: [Vec2; 2],
     pub background: Texture2D,
     pub platforms: Vec<Platform>,
@@ -219,6 +225,7 @@ impl Game {
         let mut game = Game {
             mode: GameMode::CaptureTheFlag,
             coin: Flag { pos: Vec2::ZERO, texture: coin, anim_frame: 0, anim_timer: 0.0 },
+            coin_spawn_timer: 0.0,
             race_spawns: [Vec2::ZERO; 2],
             background,
             platforms,
@@ -328,6 +335,12 @@ impl Game {
 
     /// Everything that happens after both players have moved this frame.
     pub fn update(&mut self, dt: f32) {
+        // Coin matches end at zero; leave the final arena and scores intact.
+        if self.mode == GameMode::CoinRace
+            && advance_match_clock(&mut self.round_timer, dt)
+        {
+            return;
+        }
         self.p1_hitbox = hitbox_at(self.players[0].pos);
         self.p2_hitbox = hitbox_at(self.players[1].pos);
         self.f1_hitbox = hitbox_at(self.flags[0].pos);
@@ -368,6 +381,7 @@ impl Game {
         }
 
         // Spawn flash timers.
+        self.coin_spawn_timer = (self.coin_spawn_timer - dt).max(0.0);
         for p in self.players.iter_mut() {
             if p.spawn_timer > 0.0 {
                 p.spawn_timer -= dt;
@@ -375,6 +389,9 @@ impl Game {
         }
 
         // Round timer and role swap.
+        if self.mode == GameMode::CoinRace {
+            return;
+        }
         if self.role_reversal_active {
             self.role_reversal_timer -= dt;
             if self.role_reversal_timer <= 0.0 {
@@ -385,15 +402,15 @@ impl Game {
             self.round_timer -= dt;
             if self.round_timer <= 0.0 {
                 self.round_timer = ROUND_SECONDS;
-                if self.mode == GameMode::CoinRace {
-                    self.reset_round();
-                    return;
-                }
                 self.swap_roles();
                 self.role_reversal_active = true;
                 self.role_reversal_timer = 2.0; // banner shows for 2 seconds
             }
         }
+    }
+
+    pub fn match_finished(&self) -> bool {
+        self.mode == GameMode::CoinRace && self.round_timer <= 0.0
     }
 
     /// Attacker touches the defender's flag -> flag score.
@@ -484,6 +501,13 @@ impl Game {
                     ..Default::default()
                 },
             );
+            if self.coin_spawn_timer > 0.0 {
+                let progress = (1.0 - self.coin_spawn_timer).clamp(0.0, 1.0);
+                let flash = Color::new(GOLD.r, GOLD.g, GOLD.b, 1.0 - progress);
+                let center = self.coin.pos - vec2(0.0, COIN_SIZE / 2.0);
+                draw_circle_lines(center.x, center.y, progress * 80.0, 5.0, flash);
+                draw_circle_lines(center.x, center.y, progress * 25.0, 3.0, flash);
+            }
         }
         let font = self.font.as_ref();
         for p in self.players.iter() {
@@ -658,6 +682,7 @@ impl Game {
         self.race_spawns = pair;
         self.coin.anim_frame = 0;
         self.coin.anim_timer = 0.0;
+        self.coin_spawn_timer = 1.0;
     }
 
     /// Place the defender's flag on a random upper platform; only that flag is active.
@@ -753,6 +778,20 @@ pub fn arena_platforms() -> Vec<Platform> {
 #[cfg(test)]
 mod race_tests {
     use super::*;
+
+    #[test]
+    fn match_clock_stops_at_zero_including_large_frame_gaps() {
+        let mut timer = ROUND_SECONDS;
+        assert!(!advance_match_clock(&mut timer, 119.0));
+        assert_eq!(timer, 1.0);
+        assert!(advance_match_clock(&mut timer, 1.0));
+        assert_eq!(timer, 0.0);
+        assert!(advance_match_clock(&mut timer, 10.0));
+        assert_eq!(timer, 0.0);
+        timer = ROUND_SECONDS;
+        assert!(advance_match_clock(&mut timer, 300.0));
+        assert_eq!(timer, 0.0);
+    }
 
     #[test]
     fn every_coin_location_has_safe_equidistant_spawns() {

@@ -7,7 +7,8 @@
 
 - Choose **CAPTURE THE FLAG** or **COIN RACE** in the lobby by clicking the mode selector or pressing **F3**. Press **Escape** during play to return and switch modes; starting resets scores.
 - In **Coin Race**, both players race for an animated coin on a random upper platform. Players start on safe platforms at equal straight-line distances from the coin (at least 400 pixels away), with at least 400 pixels between players. Player sides are randomized each race.
-- A coin pickup awards 10 points and starts a new race. Simultaneous pickups restart without points. Contact between players does not score; falling awards the opponent 5 points and returns the fallen player to their race spawn. The 120-second timer starts a new race without swapping roles. The NPC targets the coin in this mode.
+- A coin pickup awards 10 points and starts a new race. Simultaneous pickups restart without points. Contact between players does not score; falling awards the opponent 5 points and returns the fallen player to their race spawn. The NPC targets the coin in this mode.
+- Coin Race ends after 120 seconds with a translucent match summary showing both scores and the winner (or a draw). Click **Play Again** / press **Enter** for a fresh match with scores reset, or click **Lobby** / press **Escape** to change settings. Gameplay freezes behind the summary while the regular rendering and input loop continues, without blocking waits.
 - Two players (Red vs Blue) compete to capture the flag
 - P1 is always human; choose **P2: HUMAN** or **P2: NPC** in the start menu (click the toggle or press **F2**). Human is the default.
 - The NPC navigates platforms, jumps, drops and dashes using the same physics as a human. It pursues the active flag as attacker and chases P1 as defender, adapting when roles swap.
