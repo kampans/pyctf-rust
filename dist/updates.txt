@@ -1,0 +1,6 @@
+Latest updates
+
+• Capture the Flag now has two halves, so each player attacks and defends.
+• Coin Race: race for the coin from equally distant starting positions.
+• Match summaries, music controls, and jump and dash sounds.
+• Smoother movement and performance improvements for the web build.
