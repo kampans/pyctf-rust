@@ -13,6 +13,7 @@ pub const GRAVITY: f32 = 0.5;
 pub const PLAYER_SIZE: f32 = 42.0;
 pub const HITBOX_SIZE: f32 = 45.0;
 pub const FLAG_SIZE: f32 = 45.0;
+pub const COIN_SIZE: f32 = 30.0;
 
 /// Sprite sheet: 24x24 frames, 6 columns, 6 rows (player_red.png / player_blue.png are 144x144).
 pub const FRAME_W: f32 = 24.0;
@@ -399,7 +400,7 @@ impl Game {
     /// Attacker touches the defender -> tag score for the defender.
     fn check_scoring(&mut self) {
         if self.mode == GameMode::CoinRace {
-            let coin_hitbox = hitbox_at(self.coin.pos);
+            let coin_hitbox = self.coin_hitbox();
             let touches = [
                 rects_overlap(&self.p1_hitbox, &coin_hitbox),
                 rects_overlap(&self.p2_hitbox, &coin_hitbox),
@@ -474,12 +475,12 @@ impl Game {
         if self.mode == GameMode::CoinRace {
             draw_texture_ex(
                 &self.coin.texture,
-                self.coin.pos.x - FLAG_SIZE / 2.0,
-                self.coin.pos.y - FLAG_SIZE,
+                self.coin.pos.x - COIN_SIZE / 2.0,
+                self.coin.pos.y - COIN_SIZE,
                 WHITE,
                 DrawTextureParams {
                     source: Some(Rect::new(self.coin.anim_frame as f32 * COIN_FRAME_SIZE, 0.0, COIN_FRAME_SIZE, COIN_FRAME_SIZE)),
-                    dest_size: Some(vec2(FLAG_SIZE, FLAG_SIZE)),
+                    dest_size: Some(vec2(COIN_SIZE, COIN_SIZE)),
                     ..Default::default()
                 },
             );
@@ -522,7 +523,7 @@ impl Game {
         // Debug hitboxes.
         if draw_hitboxes {
             let objectives = if self.mode == GameMode::CoinRace {
-                vec![hitbox_at(self.coin.pos)]
+                vec![self.coin_hitbox()]
             } else {
                 self.active_flags.iter().map(|&i| hitbox_at(self.flags[i].pos)).collect()
             };
@@ -639,6 +640,10 @@ impl Game {
         player.anim_row = ROW_IDLE;
         player.anim_frame = 0;
         player.anim_timer = 0.0;
+    }
+
+    fn coin_hitbox(&self) -> Rect {
+        Rect::new(self.coin.pos.x - COIN_SIZE / 2.0, self.coin.pos.y - COIN_SIZE, COIN_SIZE, COIN_SIZE)
     }
 
     fn respawn_coin(&mut self) {
