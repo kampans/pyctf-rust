@@ -12,12 +12,18 @@ pub const GRAVITY: f32 = 0.5;
 /// Sizes
 pub const PLAYER_SIZE: f32 = 42.0;
 pub const HITBOX_SIZE: f32 = 45.0;
-pub const FLAG_SIZE: f32 = 32.0;
+pub const FLAG_SIZE: f32 = 45.0;
 
 /// Sprite sheet: 24x24 frames, 6 columns, 6 rows (player_red.png / player_blue.png are 144x144).
 pub const FRAME_W: f32 = 24.0;
 pub const FRAME_H: f32 = 24.0;
 pub const ANIM_SPEED: f32 = 0.1; // seconds per frame
+
+/// Flag sprite sheet: 45x45 frames, single row of 8 frames (360x45 total).
+pub const FLAG_FRAME_W: f32 = 45.0;
+pub const FLAG_FRAME_H: f32 = 45.0;
+pub const FLAG_FRAME_COUNT: usize = 8;
+pub const FLAG_ANIM_SPEED: f32 = 0.1; // seconds per frame
 
 /// Animation rows in the sprite sheet.
 pub const ROW_IDLE: usize = 0;
@@ -141,6 +147,10 @@ pub struct Flag {
     /// Bottom-centre of the flag image.
     pub pos: Vec2,
     pub texture: Texture2D,
+    /// Current animation frame index (0..FLAG_FRAME_COUNT).
+    pub anim_frame: usize,
+    /// Seconds accumulated toward the next animation frame.
+    pub anim_timer: f32,
 }
 
 pub struct Game {
@@ -216,8 +226,8 @@ impl Game {
                 Player::new("Player2", blue_player, COLOR_BLUE),
             ],
             flags: [
-                Flag { pos: Vec2::ZERO, texture: red_flag },
-                Flag { pos: Vec2::ZERO, texture: blue_flag },
+                Flag { pos: Vec2::ZERO, texture: red_flag, anim_frame: 0, anim_timer: 0.0 },
+                Flag { pos: Vec2::ZERO, texture: blue_flag, anim_frame: 0, anim_timer: 0.0 },
             ],
             active_flags: vec![],
             p1_score: 0,
@@ -379,6 +389,15 @@ impl Game {
         self.update_player_animation(0, dt);
         self.update_player_animation(1, dt);
 
+        // Flag animation.
+        for flag in self.flags.iter_mut() {
+            flag.anim_timer += dt;
+            if flag.anim_timer >= FLAG_ANIM_SPEED {
+                flag.anim_timer -= FLAG_ANIM_SPEED;
+                flag.anim_frame = (flag.anim_frame + 1) % FLAG_FRAME_COUNT;
+            }
+        }
+
         // Spawn flash timers.
         for p in self.players.iter_mut() {
             if p.spawn_timer > 0.0 {
@@ -446,7 +465,23 @@ impl Game {
         // Flag (only the defender's is active).
         for &idx in &self.active_flags {
             let flag = &self.flags[idx];
-            draw_texture(&flag.texture, flag.pos.x - FLAG_SIZE / 2.0, flag.pos.y - FLAG_SIZE, WHITE);
+            let source = Rect::new(
+                flag.anim_frame as f32 * FLAG_FRAME_W,
+                0.0,
+                FLAG_FRAME_W,
+                FLAG_FRAME_H,
+            );
+            draw_texture_ex(
+                &flag.texture,
+                flag.pos.x - FLAG_SIZE / 2.0,
+                flag.pos.y - FLAG_SIZE,
+                WHITE,
+                DrawTextureParams {
+                    source: Some(source),
+                    dest_size: Some(vec2(FLAG_SIZE, FLAG_SIZE)),
+                    ..Default::default()
+                },
+            );
         }
 
         // Players, spawn flash and names.

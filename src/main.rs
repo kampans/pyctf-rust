@@ -63,8 +63,8 @@ fn draw_centered(text: &str, center_x: f32, y: f32, size: u16, color: Color, fon
 
 impl App {
     async fn new() -> Self {
-        let red_flag = load_or_placeholder("assets/redflag.png", 32, 32, COLOR_RED).await;
-        let blue_flag = load_or_placeholder("assets/blueflag.png", 32, 32, COLOR_BLUE).await;
+        let red_flag = load_or_placeholder("assets/red_flag_refined_45x45.png", 360, 45, COLOR_RED).await;
+        let blue_flag = load_or_placeholder("assets/blue_flag_refined_45x45.png", 360, 45, COLOR_BLUE).await;
         let background =
             load_or_placeholder("assets/background.png", 1600, 900, Color::new(0.1, 0.2, 0.3, 1.0)).await;
         // Sprite sheets are 144x144 (6 columns x 6 rows of 24x24 frames).
