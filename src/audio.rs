@@ -1,6 +1,7 @@
 //! Nonblocking audio playback, with music controls on menu screens.
 use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, set_sound_volume, PlaySoundParams, Sound};
 use macroquad::prelude::*;
+use crate::platform::mouse_position;
 
 const MUTE: Rect = Rect::new(1180.0, 28.0, 170.0, 36.0);
 const SLIDER: Rect = Rect::new(1370.0, 28.0, 180.0, 36.0);
@@ -13,6 +14,7 @@ pub struct Audio {
     muted: bool,
     started: bool,
     dragging: bool,
+    active: bool,
 }
 
 async fn load_optional(path: &str, bytes: &[u8]) -> Option<Sound> {
@@ -34,16 +36,23 @@ impl Audio {
             jump: load_optional("jump.ogg", include_bytes!("../assets/audio/jump.ogg")).await,
             dash: load_optional("woosh.ogg", include_bytes!("../assets/audio/woosh.ogg")).await,
             volume: 0.35,
-            muted: false,
+            muted: true,
             started: false,
             dragging: false,
+            active: false,
         }
     }
 
     pub fn update(&mut self, show_controls: bool) {
         let mouse = Vec2::from(mouse_position());
         let clicked = is_mouse_button_pressed(MouseButton::Left);
-        let mut changed = false;
+        let active = crate::platform::active();
+        let mut changed = self.active != active;
+        if self.active && !active {
+            if let Some(sound) = &self.jump { macroquad::audio::stop_sound(sound); }
+            if let Some(sound) = &self.dash { macroquad::audio::stop_sound(sound); }
+        }
+        self.active = active;
         if show_controls && clicked && MUTE.contains(mouse) {
             self.muted = !self.muted;
             changed = true;
@@ -61,11 +70,10 @@ impl Audio {
         if !is_mouse_button_down(MouseButton::Left) {
             self.dragging = false;
         }
-        let volume = if self.muted { 0.0 } else { self.volume };
+        let volume = if self.muted || !active { 0.0 } else { self.volume };
         // Native playback starts immediately. The web backend starts after a
         // gesture, allowing its AudioContext to resume under autoplay restrictions.
-        let can_start = !cfg!(target_arch = "wasm32")
-            || clicked || get_last_key_pressed().is_some();
+        let can_start = active;
         if !self.started && can_start {
             if let Some(music) = &self.music {
                 play_sound(music, PlaySoundParams { looped: true, volume });

@@ -3,9 +3,11 @@ mod game;
 mod motion;
 mod npc;
 mod audio;
+mod platform;
 
 use game::{draw_label, Game, COLOR_BLUE, COLOR_RED, HEIGHT, WIDTH};
 use macroquad::prelude::*;
+use platform::mouse_position;
 
 fn window_conf() -> Conf {
     Conf {
@@ -13,7 +15,7 @@ fn window_conf() -> Conf {
         window_width: 1600,
         window_height: 900,
         fullscreen: false,
-        window_resizable: false,
+        window_resizable: true,
         ..Default::default()
     }
 }
@@ -34,6 +36,7 @@ const PLAY_AGAIN: Rect = Rect { x: 510.0, y: 560.0, w: 280.0, h: 60.0 };
 const BACK_TO_LOBBY: Rect = Rect { x: 810.0, y: 560.0, w: 280.0, h: 60.0 };
 
 struct App {
+    clock: platform::FixedClock,
     audio: audio::Audio,
     game: Game,
     npc: npc::Npc,
@@ -91,13 +94,17 @@ impl App {
         blue_player.set_filter(FilterMode::Nearest);
 
         // Optional custom font; if the file is missing macroquad's built-in font is used.
+        #[cfg(not(target_arch = "wasm32"))]
         let font = load_ttf_font("assets/DejaVuSans.ttf").await.ok();
+        #[cfg(target_arch = "wasm32")]
+        let font = None; // No optional-file 404s in a hosted build.
 
         let start_button_rect = Rect::new(WIDTH / 2.0 - 120.0, 700.0, 240.0, 60.0);
 
         let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, coin, font);
         let npc = npc::Npc::new(&game.platforms);
         Self {
+            clock: platform::FixedClock::default(),
             audio: audio::Audio::new().await,
             game,
             npc,
@@ -117,7 +124,11 @@ impl App {
 
     fn update(&mut self) {
         self.audio.update(!matches!(self.state, GameState::Playing));
-        let dt = get_frame_time();
+        if platform::take_clock_reset() || !platform::active() {
+            self.clock.reset();
+            return;
+        }
+        let dt = get_frame_time().min(0.1);
         match self.state {
             GameState::Lobby => self.update_lobby(dt),
             GameState::Playing => self.update_playing(dt),
@@ -207,6 +218,7 @@ impl App {
             format!("{} [NPC]", if p2.is_empty() { "Player2" } else { &p2 })
         } else if p2.is_empty() { "Player2".to_string() } else { p2 };
         self.game.reset();
+        self.clock.reset();
         self.npc.reset();
         self.p1_keys = [false; 6];
         self.p2_keys = [false; 6];
@@ -220,6 +232,19 @@ impl App {
             self.npc.reset();
             return;
         }
+        if is_key_pressed(KeyCode::Key9) {
+            self.show_hitboxes = !self.show_hitboxes;
+        }
+        for _ in 0..self.clock.steps(dt) {
+            self.step_playing();
+            if !matches!(self.state, GameState::Playing) {
+                self.clock.reset();
+                break;
+            }
+        }
+    }
+
+    fn step_playing(&mut self) {
         // [left, right, jump, fall through, dash left, dash right]
         self.p1_keys = [
             is_key_down(KeyCode::A),
@@ -253,7 +278,7 @@ impl App {
         }
 
         // Hitboxes, void death, scoring, animation, round timer.
-        self.game.update(dt);
+        self.game.update(platform::STEP);
         if self.game.match_finished() {
             self.state = GameState::MatchSummary;
             self.p1_keys = [false; 6];
@@ -261,9 +286,6 @@ impl App {
             self.npc.reset();
         }
 
-        if is_key_pressed(KeyCode::Key9) {
-            self.show_hitboxes = !self.show_hitboxes;
-        }
     }
 
     /// Only process menu input here. Rendering and next_frame continue normally,
@@ -279,8 +301,13 @@ impl App {
         }
     }
 
-    fn draw(&self) {
-        clear_background(Color::new(25.0 / 255.0, 51.0 / 255.0, 7.0 / 255.0, 1.0));
+    fn draw(&mut self) {
+        set_default_camera();
+        clear_background(BLACK);
+        set_camera(&platform::camera());
+        if matches!(self.state, GameState::Lobby) {
+            draw_rectangle(0.0, 0.0, WIDTH, HEIGHT, Color::new(25.0 / 255.0, 51.0 / 255.0, 7.0 / 255.0, 1.0));
+        }
         match self.state {
             GameState::Lobby => self.draw_lobby(),
             GameState::Playing => self.draw_playing(),
@@ -291,21 +318,28 @@ impl App {
         }
     }
 
-    fn draw_playing(&self) {
-        self.game.draw(self.show_hitboxes);
+    fn draw_playing(&mut self) {
+        let interpolation = if self.show_hitboxes { 1.0 } else { self.clock.interpolation() };
+        self.game.draw(self.show_hitboxes, interpolation);
         self.game.draw_ui(!is_key_down(KeyCode::Tab));
         draw_label("[ESC] Start menu", 20.0, HEIGHT - 15.0, 18, WHITE, self.game.font.as_ref());
     }
 
     fn draw_summary(&self) {
-        self.game.draw(self.show_hitboxes);
+        self.game.draw(self.show_hitboxes, 1.0);
         let font = self.game.font.as_ref();
         let center_x = WIDTH / 2.0;
         draw_rectangle(0.0, 0.0, WIDTH, HEIGHT, Color::new(0.0, 0.0, 0.0, 0.35));
         draw_rectangle(380.0, 220.0, 840.0, 460.0, Color::new(0.15, 0.15, 0.15, 0.88));
         draw_rectangle_lines(380.0, 220.0, 840.0, 460.0, 2.0, GRAY);
-        draw_centered("COIN RACE - MATCH COMPLETE", center_x, 285.0, 36, GOLD, font);
-        draw_centered("Time's up!  120 seconds played", center_x, 325.0, 22, LIGHTGRAY, font);
+        let title = format!("{} - MATCH COMPLETE", self.game.mode.label());
+        draw_centered(&title, center_x, 285.0, 32, GOLD, font);
+        let detail = if self.game.mode == game::GameMode::CaptureTheFlag {
+            "Both halves complete!  120 seconds in each role"
+        } else {
+            "Time's up!  120 seconds played"
+        };
+        draw_centered(detail, center_x, 325.0, 22, LIGHTGRAY, font);
         let (result, color) = match self.game.p1_score.cmp(&self.game.p2_score) {
             std::cmp::Ordering::Greater => (format!("{} wins!", self.game.players[0].name), COLOR_RED),
             std::cmp::Ordering::Less => (format!("{} wins!", self.game.players[1].name), COLOR_BLUE),
@@ -434,7 +468,9 @@ impl App {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    macroquad::rand::srand((macroquad::miniquad::date::now() * 1_000_000.0) as u64);
     let mut app = App::new().await;
+    platform::mark_ready();
     loop {
         app.update();
         app.draw();

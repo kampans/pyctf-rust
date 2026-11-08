@@ -76,19 +76,30 @@ fn advance_match_clock(timer: &mut f32, dt: f32) -> bool {
     *timer == 0.0
 }
 
+/// Returns true exactly once per CTF match, when the second half begins.
+fn advance_match_period(mode: GameMode, timer: &mut f32, second_half: &mut bool, dt: f32) -> bool {
+    if advance_match_clock(timer, dt) && mode == GameMode::CaptureTheFlag && !*second_half {
+        *second_half = true;
+        *timer = ROUND_SECONDS;
+        return true;
+    }
+    false
+}
+
 /// Intersect a circle around the coin with safe standing positions on platforms.
-fn race_spawn_pairs(platforms: &[Platform], coin: Vec2) -> Vec<[Vec2; 2]> {
-    let mut pairs = Vec::new();
+fn visit_race_spawn_pairs(platforms: &[Platform], coin: Vec2, mut visit: impl FnMut([Vec2; 2])) {
+    let mut candidates = Vec::with_capacity(platforms.len() * 2);
     for radius in (COIN_MIN_SPAWN_DISTANCE as u32..=1400).step_by(25) {
         let radius = radius as f32;
-        let mut candidates = Vec::new();
+        candidates.clear();
         for platform in platforms {
             let y = platform.rect.y + 1.0;
             let dx_squared = radius * radius - (y - coin.y).powi(2);
             if dx_squared < 0.0 {
                 continue;
             }
-            for x in [coin.x - dx_squared.sqrt(), coin.x + dx_squared.sqrt()] {
+            let dx = dx_squared.sqrt();
+            for x in [coin.x - dx, coin.x + dx] {
                 if x >= platform.rect.x + HITBOX_SIZE / 2.0
                     && x <= platform.rect.right() - HITBOX_SIZE / 2.0
                 {
@@ -98,13 +109,24 @@ fn race_spawn_pairs(platforms: &[Platform], coin: Vec2) -> Vec<[Vec2; 2]> {
         }
         for (i, &a) in candidates.iter().enumerate() {
             for &b in &candidates[i + 1..] {
-                if a.distance(b) >= COIN_MIN_SPAWN_DISTANCE {
-                    pairs.push([a, b]);
+                if a.distance_squared(b) >= COIN_MIN_SPAWN_DISTANCE.powi(2) {
+                    visit([a, b]);
                 }
             }
         }
     }
-    pairs
+}
+
+fn choose_race_spawns(platforms: &[Platform], coin: Vec2) -> Option<[Vec2; 2]> {
+    let mut chosen = None;
+    let mut count = 0usize;
+    // Reservoir sampling keeps every valid pair equally likely without building
+    // a potentially large list whenever a coin is collected.
+    visit_race_spawn_pairs(platforms, coin, |pair| {
+        count += 1;
+        if macroquad::rand::gen_range(0, count) == 0 { chosen = Some(pair); }
+    });
+    chosen
 }
 
 /// Colours.
@@ -119,6 +141,7 @@ pub const COLOR_DARK_GREEN: Color = Color { r: 0.0, g: 100.0 / 255.0, b: 0.0, a:
 pub struct Player {
     /// Bottom-centre of the sprite.
     pub pos: Vec2,
+    previous_pos: Vec2,
     pub vel: Vec2,
     pub acc: Vec2,
     /// Shown above the player.
@@ -143,6 +166,7 @@ impl Player {
     fn new(name: &str, texture: Texture2D, spawn_color: Color) -> Self {
         Player {
             pos: Vec2::ZERO,
+            previous_pos: Vec2::ZERO,
             vel: Vec2::ZERO,
             acc: Vec2::ZERO,
             name: name.to_string(),
@@ -175,7 +199,47 @@ pub struct Flag {
     pub anim_timer: f32,
 }
 
+type HudKey = (u32, u32, u32, GameMode, bool, usize);
+
+struct HudCache {
+    key: HudKey,
+    timer: String,
+    scores: [String; 2],
+    score_widths: [f32; 2],
+    timer_widths: [f32; 2],
+    expanded_score: String,
+    role: String,
+    expanded_widths: [f32; 2],
+    half: &'static str,
+    half_width: f32,
+}
+
+impl HudCache {
+    fn new(key: HudKey, font: Option<&Font>) -> Self {
+        let (p1, p2, seconds, mode, second_half, attacker) = key;
+        let timer = format!("{:02}:{:02}", seconds / 60, seconds % 60);
+        let scores = [p1.to_string(), p2.to_string()];
+        let expanded_score = format!("P1: {p1}  |  P2: {p2}");
+        let role = if mode == GameMode::CoinRace {
+            "COIN RACE - First to the coin wins 10 points".to_string()
+        } else {
+            let roles = if attacker == 0 { ["ATTACKER", "DEFENDER"] } else { ["DEFENDER", "ATTACKER"] };
+            format!("Half {} / 2 | P1: {} | P2: {}", if second_half { 2 } else { 1 }, roles[0], roles[1])
+        };
+        let half = if second_half { "HALF 2 / 2" } else { "HALF 1 / 2" };
+        Self {
+            key,
+            score_widths: scores.each_ref().map(|score| measure_text(score, font, 28, 1.0).width),
+            timer_widths: [28, 32].map(|size| measure_text(&timer, font, size, 1.0).width),
+            expanded_widths: [measure_text(&expanded_score, font, 36, 1.0).width, measure_text(&role, font, 24, 1.0).width],
+            half_width: measure_text(half, font, 18, 1.0).width,
+            timer, scores, expanded_score, role, half,
+        }
+    }
+}
+
 pub struct Game {
+    hud_cache: Option<HudCache>,
     pub mode: GameMode,
     pub coin: Flag,
     coin_spawn_timer: f32,
@@ -200,8 +264,9 @@ pub struct Game {
     pub p2_hitbox: Rect,
     pub f1_hitbox: Rect,
     pub f2_hitbox: Rect,
-    /// Seconds left before roles swap.
+    /// Seconds left in this half (CTF) or match (Coin Race).
     pub round_timer: f32,
+    pub ctf_second_half: bool,
     /// "ROLES REVERSED!" banner state.
     pub role_reversal_active: bool,
     pub role_reversal_timer: f32,
@@ -223,6 +288,7 @@ impl Game {
         let empty = Rect::new(0.0, 0.0, HITBOX_SIZE, HITBOX_SIZE);
 
         let mut game = Game {
+            hud_cache: None,
             mode: GameMode::CaptureTheFlag,
             coin: Flag { pos: Vec2::ZERO, texture: coin, anim_frame: 0, anim_timer: 0.0 },
             coin_spawn_timer: 0.0,
@@ -249,6 +315,7 @@ impl Game {
             f1_hitbox: empty,
             f2_hitbox: empty,
             round_timer: ROUND_SECONDS,
+            ctf_second_half: false,
             role_reversal_active: false,
             role_reversal_timer: 0.0,
         };
@@ -264,6 +331,7 @@ impl Game {
         self.randomize_roles();
         self.reset_round();
         self.round_timer = ROUND_SECONDS;
+        self.ctf_second_half = false;
         self.role_reversal_active = false;
         self.role_reversal_timer = 0.0;
     }
@@ -285,6 +353,7 @@ impl Game {
     /// Advance one player by one frame using its six keys.
     pub fn move_player(&mut self, idx: usize, keys: &[bool; 6]) {
         let player = &mut self.players[idx];
+        player.previous_pos = player.pos;
 
         let mut motion = crate::motion::Motion::from(&*player);
         motion.step(keys, &self.platforms);
@@ -335,10 +404,14 @@ impl Game {
 
     /// Everything that happens after both players have moved this frame.
     pub fn update(&mut self, dt: f32) {
-        // Coin matches end at zero; leave the final arena and scores intact.
-        if self.mode == GameMode::CoinRace
-            && advance_match_clock(&mut self.round_timer, dt)
-        {
+        if advance_match_period(self.mode, &mut self.round_timer, &mut self.ctf_second_half, dt) {
+            self.swap_roles();
+            self.role_reversal_active = true;
+            self.role_reversal_timer = 2.0;
+            return;
+        }
+        // End without changing the final scores or spawning another objective.
+        if self.match_finished() {
             return;
         }
         self.p1_hitbox = hitbox_at(self.players[0].pos);
@@ -388,29 +461,19 @@ impl Game {
             }
         }
 
-        // Round timer and role swap.
-        if self.mode == GameMode::CoinRace {
-            return;
-        }
+        // The banner is cosmetic; both halves receive 120 seconds of play.
         if self.role_reversal_active {
             self.role_reversal_timer -= dt;
             if self.role_reversal_timer <= 0.0 {
                 self.role_reversal_active = false;
                 self.role_reversal_timer = 0.0;
             }
-        } else {
-            self.round_timer -= dt;
-            if self.round_timer <= 0.0 {
-                self.round_timer = ROUND_SECONDS;
-                self.swap_roles();
-                self.role_reversal_active = true;
-                self.role_reversal_timer = 2.0; // banner shows for 2 seconds
-            }
         }
     }
 
     pub fn match_finished(&self) -> bool {
-        self.mode == GameMode::CoinRace && self.round_timer <= 0.0
+        self.round_timer <= 0.0
+            && (self.mode == GameMode::CoinRace || self.ctf_second_half)
     }
 
     /// Attacker touches the defender's flag -> flag score.
@@ -454,7 +517,7 @@ impl Game {
         }
     }
 
-    pub fn draw(&self, draw_hitboxes: bool) {
+    pub fn draw(&self, draw_hitboxes: bool, interpolation: f32) {
         // Background.
         draw_texture(&self.background, 0.0, 0.0, WHITE);
 
@@ -511,6 +574,9 @@ impl Game {
         }
         let font = self.font.as_ref();
         for p in self.players.iter() {
+            // Smooth visuals between fixed physics ticks; collisions and the NPC
+            // continue to use the exact simulated position.
+            let pos = p.previous_pos.lerp(p.pos, interpolation);
             let source = Rect::new(
                 p.anim_frame as f32 * FRAME_W,
                 p.anim_row as f32 * FRAME_H,
@@ -520,8 +586,8 @@ impl Game {
 
             draw_texture_ex(
                 &p.texture,
-                p.pos.x - PLAYER_SIZE / 2.0,
-                p.pos.y - PLAYER_SIZE,
+                pos.x - PLAYER_SIZE / 2.0,
+                pos.y - PLAYER_SIZE,
                 WHITE,
                 DrawTextureParams {
                     source: Some(source),
@@ -535,13 +601,13 @@ impl Game {
                 let progress = (1.0 - p.spawn_timer).clamp(0.0, 1.0);
                 let alpha = 1.0 - progress;
                 let flash = Color::new(p.spawn_color.r, p.spawn_color.g, p.spawn_color.b, alpha);
-                let cx = p.pos.x;
-                let cy = p.pos.y - PLAYER_SIZE / 2.0;
+                let cx = pos.x;
+                let cy = pos.y - PLAYER_SIZE / 2.0;
                 draw_circle_lines(cx, cy, progress * 80.0, 5.0, flash);
                 draw_circle_lines(cx, cy, progress * 25.0, 3.0, flash);
             }
 
-            draw_label(&p.name, p.pos.x - 20.0, p.pos.y - PLAYER_SIZE - 12.0, 15, WHITE, font);
+            draw_label(&p.name, pos.x - 20.0, pos.y - PLAYER_SIZE - 12.0, 15, WHITE, font);
         }
 
         // Debug hitboxes.
@@ -559,41 +625,32 @@ impl Game {
 
     /// HUD. `compact` = Tab released: just red score | timer | blue score.
     /// `compact` = false (Tab held): scores, roles and timer.
-    pub fn draw_ui(&self, compact: bool) {
+    pub fn draw_ui(&mut self, compact: bool) {
         let font = self.font.as_ref();
         let center_x = WIDTH / 2.0;
 
         let timer_secs = self.round_timer.max(0.0).ceil() as u32;
-        let timer_text = format!("{:02}:{:02}", timer_secs / 60, timer_secs % 60);
+        let key = (self.p1_score, self.p2_score, timer_secs, self.mode, self.ctf_second_half, self.attacker_idx);
+        if self.hud_cache.as_ref().is_none_or(|hud| hud.key != key) {
+            self.hud_cache = Some(HudCache::new(key, font));
+        }
+        // Text and its layout change only on a score, role, or whole-second tick.
+        let hud = self.hud_cache.as_ref().unwrap();
         let timer_color = if timer_secs <= 10 { COLOR_RED } else { WHITE };
 
         if compact {
-            let p1_text = format!("{}", self.p1_score);
-            let p2_text = format!("{}", self.p2_score);
-            let p1_dims = measure_text(&p1_text, font, 28, 1.0);
-            let p2_dims = measure_text(&p2_text, font, 28, 1.0);
-            let timer_dims = measure_text(&timer_text, font, 28, 1.0);
-
-            let left = center_x - 90.0 - p1_dims.width / 2.0;
-            let right = center_x + 90.0 + p2_dims.width / 2.0;
+            let left = center_x - 90.0 - hud.score_widths[0] / 2.0;
+            let right = center_x + 90.0 + hud.score_widths[1] / 2.0;
             draw_rectangle(left - 15.0, 20.0, (right - left) + 30.0, 54.0, Color::new(0.15, 0.15, 0.15, 0.75));
 
-            draw_label(&p1_text, center_x - 90.0 - p1_dims.width / 2.0, 52.0, 28, COLOR_RED, font);
-            draw_label(&timer_text, center_x - timer_dims.width / 2.0, 52.0, 28, timer_color, font);
-            draw_label(&p2_text, center_x + 90.0 - p2_dims.width / 2.0, 52.0, 28, COLOR_BLUE, font);
+            draw_label(&hud.scores[0], center_x - 90.0 - hud.score_widths[0] / 2.0, 52.0, 28, COLOR_RED, font);
+            draw_label(&hud.timer, center_x - hud.timer_widths[0] / 2.0, 52.0, 28, timer_color, font);
+            draw_label(&hud.scores[1], center_x + 90.0 - hud.score_widths[1] / 2.0, 52.0, 28, COLOR_BLUE, font);
+            if self.mode == GameMode::CaptureTheFlag {
+                draw_label(hud.half, center_x - hud.half_width / 2.0, 94.0, 18, WHITE, font);
+            }
         } else {
-            let score_text = format!("P1: {}  |  P2: {}", self.p1_score, self.p2_score);
-            let p1_role = if self.attacker_idx == 0 { "ATTACKER" } else { "DEFENDER" };
-            let p2_role = if self.attacker_idx == 1 { "ATTACKER" } else { "DEFENDER" };
-            let role_text = if self.mode == GameMode::CoinRace {
-                "COIN RACE - First to the coin wins 10 points".to_string()
-            } else { format!("P1: {}  |  P2: {}", p1_role, p2_role) };
-
-            let score_dims = measure_text(&score_text, font, 36, 1.0);
-            let role_dims = measure_text(&role_text, font, 24, 1.0);
-            let timer_dims = measure_text(&timer_text, font, 32, 1.0);
-
-            let max_w = score_dims.width.max(role_dims.width).max(timer_dims.width);
+            let max_w = hud.expanded_widths[0].max(hud.expanded_widths[1]).max(hud.timer_widths[1]);
             draw_rectangle(
                 center_x - max_w / 2.0 - 25.0,
                 10.0,
@@ -602,9 +659,9 @@ impl Game {
                 Color::new(0.15, 0.15, 0.15, 0.8),
             );
 
-            draw_label(&score_text, center_x - score_dims.width / 2.0, 50.0, 36, WHITE, font);
-            draw_label(&role_text, center_x - role_dims.width / 2.0, 90.0, 24, YELLOW, font);
-            draw_label(&timer_text, center_x - timer_dims.width / 2.0, 130.0, 32, timer_color, font);
+            draw_label(&hud.expanded_score, center_x - hud.expanded_widths[0] / 2.0, 50.0, 36, WHITE, font);
+            draw_label(&hud.role, center_x - hud.expanded_widths[1] / 2.0, 90.0, 24, YELLOW, font);
+            draw_label(&hud.timer, center_x - hud.timer_widths[1] / 2.0, 130.0, 32, timer_color, font);
         }
 
         // Role swap banner - always visible while active.
@@ -646,7 +703,7 @@ impl Game {
         // Stay 20px away from the platform edges.
         let min_x = spawn_platform.rect.x + 20.0;
         let max_x = spawn_platform.rect.x + spawn_platform.rect.w - 20.0;
-        let x = min_x + ::rand::random::<f32>() * (max_x - min_x);
+        let x = macroquad::rand::gen_range(min_x, max_x);
 
         self.place_player(idx, vec2(x, spawn_platform.rect.y + 1.0));
     }
@@ -654,6 +711,7 @@ impl Game {
     fn place_player(&mut self, idx: usize, pos: Vec2) {
         let player = &mut self.players[idx];
         player.pos = pos;
+        player.previous_pos = pos; // Respawns must snap, never slide across the arena.
         player.vel = Vec2::ZERO;
         player.acc = Vec2::ZERO;
         player.jumping = false;
@@ -675,10 +733,10 @@ impl Game {
         self.respawn_flags();
         self.coin.pos = self.flags[self.defender_idx].pos;
         self.active_flags.clear();
-        let pairs = race_spawn_pairs(&self.platforms, self.coin.pos);
         // Every upper-platform coin location in this arena has valid spawn pairs.
-        let mut pair = pairs[::rand::random::<usize>() % pairs.len()];
-        if ::rand::random::<bool>() { pair.swap(0, 1); }
+        let mut pair = choose_race_spawns(&self.platforms, self.coin.pos)
+            .expect("the arena must provide fair coin spawn positions");
+        if macroquad::rand::gen_range(0, 2) == 1 { pair.swap(0, 1); }
         self.race_spawns = pair;
         self.coin.anim_frame = 0;
         self.coin.anim_timer = 0.0;
@@ -697,11 +755,11 @@ impl Game {
             .collect();
 
         if !upper.is_empty() {
-            let plat = upper[::rand::random::<usize>() % upper.len()];
+            let plat = upper[macroquad::rand::gen_range(0, upper.len())];
             let min_x = plat.rect.x + FLAG_SPAWN_MARGIN;
             let max_x = plat.rect.x + plat.rect.w - FLAG_SPAWN_MARGIN;
             let spawn_x = if max_x > min_x {
-                min_x + ::rand::random::<f32>() * (max_x - min_x)
+                macroquad::rand::gen_range(min_x, max_x)
             } else {
                 plat.rect.x + plat.rect.w / 2.0
             };
@@ -713,11 +771,11 @@ impl Game {
 
     /// Randomly choose who attacks and who defends.
     pub fn randomize_roles(&mut self) {
-        self.attacker_idx = if ::rand::random::<bool>() { 0 } else { 1 };
+        self.attacker_idx = macroquad::rand::gen_range(0, 2);
         self.defender_idx = 1 - self.attacker_idx;
     }
 
-    /// Swap attacker/defender (used when the round timer runs out).
+    /// Swap attacker/defender at halftime, preserving the match scores.
     pub fn swap_roles(&mut self) {
         std::mem::swap(&mut self.attacker_idx, &mut self.defender_idx);
         self.reset_round();
@@ -780,6 +838,32 @@ mod race_tests {
     use super::*;
 
     #[test]
+    fn ctf_swaps_once_then_ends_after_both_halves() {
+        let mut timer = ROUND_SECONDS;
+        let mut second_half = false;
+        assert!(!advance_match_period(GameMode::CaptureTheFlag, &mut timer, &mut second_half, 119.0));
+        assert!(!second_half);
+        assert!(advance_match_period(GameMode::CaptureTheFlag, &mut timer, &mut second_half, 1.0));
+        assert!(second_half);
+        assert_eq!(timer, ROUND_SECONDS);
+        assert!(!advance_match_period(GameMode::CaptureTheFlag, &mut timer, &mut second_half, 119.0));
+        assert_eq!(timer, 1.0);
+        assert!(!advance_match_period(GameMode::CaptureTheFlag, &mut timer, &mut second_half, 1.0));
+        assert_eq!(timer, 0.0);
+        assert!(!advance_match_period(GameMode::CaptureTheFlag, &mut timer, &mut second_half, 1000.0));
+        assert_eq!(timer, 0.0);
+    }
+
+    #[test]
+    fn coin_match_ends_without_a_second_half() {
+        let mut timer = ROUND_SECONDS;
+        let mut second_half = false;
+        assert!(!advance_match_period(GameMode::CoinRace, &mut timer, &mut second_half, ROUND_SECONDS));
+        assert!(!second_half);
+        assert_eq!(timer, 0.0);
+    }
+
+    #[test]
     fn match_clock_stops_at_zero_including_large_frame_gaps() {
         let mut timer = ROUND_SECONDS;
         assert!(!advance_match_clock(&mut timer, 119.0));
@@ -802,7 +886,8 @@ mod race_tests {
             // Cover the full spawn range, including both edges, at subpixel intervals.
             for step in 0..=1000 {
                 let coin = vec2(left + (right - left) * step as f32 / 1000.0, platform.rect.y);
-                let pairs = race_spawn_pairs(&platforms, coin);
+                let mut pairs = Vec::new();
+                visit_race_spawn_pairs(&platforms, coin, |pair| pairs.push(pair));
                 assert!(!pairs.is_empty(), "no spawn pair for {coin:?}");
                 for pair in pairs {
                     let [a, b] = pair;

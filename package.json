@@ -1,0 +1,12 @@
+{
+  "name": "pyctf-web",
+  "private": true,
+  "scripts": {
+    "web:build": "node scripts/build-web.mjs",
+    "web:serve": "node scripts/serve-web.mjs",
+    "web:check": "node scripts/check-web.mjs",
+    "test:web": "node --test scripts/web.test.mjs",
+    "web:smoke": "node scripts/browser-smoke.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

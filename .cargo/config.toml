@@ -1,0 +1,4 @@
+[target.wasm32-unknown-unknown]
+# quad-snd's browser functions are supplied by mq_js_bundle.js at runtime.
+# Recent LLVM linkers require this for its legacy extern declarations.
+rustflags = ["-C", "link-arg=--allow-undefined"]

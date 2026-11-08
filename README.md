@@ -15,12 +15,12 @@
 - NPC mode ignores P2 keyboard controls and marks the blue player with `[NPC]`. Names remain editable in either mode.
 - The attacker tries to grab the opponent's flag and return it to their base
 - The defender tries to stop the attacker or catch them
-- Rounds last 120 seconds; scoring is based on flag captures, defender catches, and void kills
+- CTF matches have two 120-second halves, with one role reversal at halftime so each player attacks and defends. Scores carry across halves. After the second half, the match summary offers Play Again or Lobby.
 - Players can customize their names (up to 12 characters)
 
 ## Controls
 
-- **Music controls (top right, in the lobby and match summary)**: click **Mute Music / Unmute Music**, or click and drag the volume slider. Controls are hidden and inactive during gameplay. Music starts at 35% and loops, automatically on desktop and after your first click or keypress in browser builds. Muting preserves your chosen volume and leaves jump/dash sound effects enabled. Settings carry across rematches and lobby visits during the session.
+- **Music controls (top right, in the lobby and match summary)**: music starts **muted**. Click **Unmute Music** to listen at the default 35% volume, or click and drag the volume slider. Controls are hidden and inactive during gameplay. Muting preserves your chosen volume and leaves jump/dash sound effects enabled. Settings carry across rematches and lobby visits during the session.
 
 ### Player 1 (Red)
 - **Move**: A / D
@@ -59,6 +59,18 @@ cargo run
 ```
 
 The game will launch in a 1600x900 window.
+
+## Website / WebAssembly
+
+The browser build, responsive canvas, user-gesture audio, focus pause/resume, and static hosting output are prepared. See [WEB.md](WEB.md) for the complete setup and deployment notes. Nothing is published automatically.
+
+```powershell
+rustup target add wasm32-unknown-unknown
+node scripts/build-web.mjs
+node scripts/serve-web.mjs
+```
+
+Then open http://127.0.0.1:8080 and click inside the greyscale game window to play. Upload the generated `dist/` contents when you are ready to host it. The web version currently uses keyboard controls and local multiplayer or the NPC.
 
 ## Project Structure
 
@@ -102,7 +114,7 @@ pyctf-rust/
   - 10 points for capturing the flag
   - 10 points for defender catching the attacker
   - 5 points for opponent falling into the void
-- **Round timer**: 120 seconds per round; roles swap when time runs out
+- **CTF timer**: two 120-second halves; roles reverse once at halftime, then the match ends with a summary. The HUD shows the current half.
 - **Spawn protection**: Players spawn with a flash effect and invulnerability
 
 ## Validation

@@ -11,7 +11,7 @@ struct Leg {
 }
 
 pub struct Npc {
-    routes: Vec<Vec<Leg>>,
+    next_legs: Vec<Vec<Option<Leg>>>,
     leg: Option<Leg>,
     launched: bool,
     last_spawn_timer: f32,
@@ -65,7 +65,7 @@ fn can_reach(platforms: &[Platform], from: usize, leg: Leg) -> bool {
 
 impl Npc {
     pub fn new(platforms: &[Platform]) -> Self {
-        let routes = (0..platforms.len())
+        let routes: Vec<Vec<Leg>> = (0..platforms.len())
             .map(|from| {
                 (0..platforms.len())
                     .filter(|&to| to != from)
@@ -78,8 +78,25 @@ impl Npc {
                     .collect()
             })
             .collect();
+        // The arena graph never changes. Solve every source once instead of
+        // allocating a queue and searching it on every grounded simulation tick.
+        let next_legs = (0..routes.len()).map(|from| {
+            let mut queue = VecDeque::from([from]);
+            let mut seen = vec![false; routes.len()];
+            let mut first = vec![None; routes.len()];
+            seen[from] = true;
+            while let Some(node) = queue.pop_front() {
+                for &leg in &routes[node] {
+                    if seen[leg.platform] { continue; }
+                    seen[leg.platform] = true;
+                    first[leg.platform] = if node == from { Some(leg) } else { first[node] };
+                    queue.push_back(leg.platform);
+                }
+            }
+            first
+        }).collect();
         Self {
-            routes,
+            next_legs,
             leg: None,
             launched: false,
             last_spawn_timer: 0.0,
@@ -93,24 +110,7 @@ impl Npc {
     }
 
     fn next_leg(&self, from: usize, to: usize) -> Option<Leg> {
-        let mut queue = VecDeque::from([from]);
-        let mut seen = vec![false; self.routes.len()];
-        let mut first = vec![None; self.routes.len()];
-        seen[from] = true;
-        while let Some(node) = queue.pop_front() {
-            for &leg in &self.routes[node] {
-                if seen[leg.platform] {
-                    continue;
-                }
-                seen[leg.platform] = true;
-                first[leg.platform] = if node == from { Some(leg) } else { first[node] };
-                if leg.platform == to {
-                    return first[to];
-                }
-                queue.push_back(leg.platform);
-            }
-        }
-        None
+        self.next_legs[from][to]
     }
 
     pub fn keys(&mut self, game: &Game) -> [bool; 6] {
