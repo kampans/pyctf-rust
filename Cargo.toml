@@ -5,7 +5,7 @@ edition = "2024"
 description = "Rust port of pyCTF - Capture the Flag (pygame -> Rust/Macroquad)"
 
 [dependencies]
-macroquad = "0.4"
+macroquad = { version = "0.4", features = ["audio"] }
 rand = "0.8"
 
 [profile.release]

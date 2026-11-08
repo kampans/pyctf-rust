@@ -2,6 +2,7 @@
 mod game;
 mod motion;
 mod npc;
+mod audio;
 
 use game::{draw_label, Game, COLOR_BLUE, COLOR_RED, HEIGHT, WIDTH};
 use macroquad::prelude::*;
@@ -33,6 +34,7 @@ const PLAY_AGAIN: Rect = Rect { x: 510.0, y: 560.0, w: 280.0, h: 60.0 };
 const BACK_TO_LOBBY: Rect = Rect { x: 810.0, y: 560.0, w: 280.0, h: 60.0 };
 
 struct App {
+    audio: audio::Audio,
     game: Game,
     npc: npc::Npc,
     p2_npc: bool,
@@ -96,6 +98,7 @@ impl App {
         let game = Game::new(background, red_flag, blue_flag, red_player, blue_player, coin, font);
         let npc = npc::Npc::new(&game.platforms);
         Self {
+            audio: audio::Audio::new().await,
             game,
             npc,
             p2_npc: false,
@@ -113,6 +116,7 @@ impl App {
     }
 
     fn update(&mut self) {
+        self.audio.update(!matches!(self.state, GameState::Playing));
         let dt = get_frame_time();
         match self.state {
             GameState::Lobby => self.update_lobby(dt),
@@ -238,8 +242,15 @@ impl App {
             ]
         };
 
-        self.game.move_player(0, &self.p1_keys);
-        self.game.move_player(1, &self.p2_keys);
+        for (idx, keys) in [self.p1_keys, self.p2_keys].iter().enumerate() {
+            let was_jumping = self.game.players[idx].jumping;
+            let was_dashing = self.game.players[idx].wooshing;
+            self.game.move_player(idx, keys);
+            self.audio.movement(
+                !was_jumping && self.game.players[idx].jumping,
+                !was_dashing && self.game.players[idx].wooshing,
+            );
+        }
 
         // Hitboxes, void death, scoring, animation, round timer.
         self.game.update(dt);
@@ -274,6 +285,9 @@ impl App {
             GameState::Lobby => self.draw_lobby(),
             GameState::Playing => self.draw_playing(),
             GameState::MatchSummary => self.draw_summary(),
+        }
+        if !matches!(self.state, GameState::Playing) {
+            self.audio.draw(self.game.font.as_ref());
         }
     }
 

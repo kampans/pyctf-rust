@@ -20,6 +20,8 @@
 
 ## Controls
 
+- **Music controls (top right, in the lobby and match summary)**: click **Mute Music / Unmute Music**, or click and drag the volume slider. Controls are hidden and inactive during gameplay. Music starts at 35% and loops, automatically on desktop and after your first click or keypress in browser builds. Muting preserves your chosen volume and leaves jump/dash sound effects enabled. Settings carry across rematches and lobby visits during the session.
+
 ### Player 1 (Red)
 - **Move**: A / D
 - **Jump**: W
